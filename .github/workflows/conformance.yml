@@ -41,6 +41,10 @@
 #
 # Passing today: concurrent, lease, poll (skips itself, no caps), races,
 # reorder, linz, invariant-selftest.
+#
+# A passing leg is not agreement: on address validity and on origins this
+# model states the SERVER's answer, which the specification contradicts.
+# docs/spec-divergences.md has all three positions, rule by rule.
 
 name: Conformance
 
