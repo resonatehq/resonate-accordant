@@ -73,9 +73,34 @@ public static partial class ResonateSpec
             && rec.Ttl == expectedTtl;
     }
 
-    private static bool AddressValid(string addr) =>
-        addr.StartsWith("http://") || addr.StartsWith("https://") ||
-        (addr.StartsWith("poll://") && addr.Contains('@'));
+    /// <summary>
+    /// An address is valid iff it parses as a URI WITH A SCHEME. Nothing past
+    /// the scheme is checked — not the authority, not the shape a particular
+    /// scheme expects. `poll://group` (no `@`) is therefore admitted here and
+    /// fails later, at delivery, in whichever worker owns `poll://`.
+    ///
+    /// That shallowness is the server's stated contract, not an omission of
+    /// ours: validity has to be a pure function of the string, identical on
+    /// every deployment, because a server's enabled transports must not change
+    /// which requests it accepts (resonate-core `address.rs`). A scheme-aware
+    /// model would report divergences the server is right to disagree with.
+    ///
+    /// Uri.TryCreate alone is NOT this predicate. On Unix it reads a bare path
+    /// like "/relative/path" as an implicit file:// URI and accepts it, where
+    /// Rust's url::Url::parse rejects it as relative-without-base. The explicit
+    /// scheme prefix is what closes that gap; with it the two agree across the
+    /// corpus in `address.rs`'s own tests, valid and invalid alike.
+    /// </summary>
+    private static bool AddressValid(string addr)
+    {
+        var trimmed = addr.Trim();
+        return SchemePrefix.IsMatch(trimmed)
+            && Uri.TryCreate(trimmed, UriKind.Absolute, out _);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex SchemePrefix =
+        new(@"^[A-Za-z][A-Za-z0-9+.\-]*:",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
 }
 
 public sealed class Handler<TRequest>(string name, Func<TRequest, ServerState, ExpectedOutcomes> body)

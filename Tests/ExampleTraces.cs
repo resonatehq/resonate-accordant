@@ -118,7 +118,12 @@ public static class ExampleTraces
         await checker.Step(new RegisterCallback("other:x", "ex:t1"), "register_callback across origins → 400");
         await checker.Step(new RegisterCallback("ex:awaited", "other:t"), "register_callback with foreign awaiter → 400 (before the 422)");
         await checker.Step(new RegisterListener("ex:awaited", "http://localhost/cb"), "register_listener valid addr → 200");
-        await checker.Step(new RegisterListener("ex:awaited", "poll://bad"), "register_listener invalid addr → 400");
+        // Well-formed URI, malformed for its scheme: admitted. The server knows
+        // only that an address is a URI — `poll://`'s own syntax belongs to the
+        // poll worker, which rejects this at delivery, not at admission.
+        await checker.Step(new RegisterListener("ex:awaited", "poll://bad"), "register_listener scheme-malformed addr → 200 (admitted)");
+        // No scheme at all — the one thing admission does check.
+        await checker.Step(new RegisterListener("ex:awaited", "not a url"), "register_listener invalid addr → 400");
 
         // suspend: root awaiting a PENDING promise → 200 suspended.
         await checker.Step(new CreatePromise("ex:root", now + 100_000, "r", WithTarget: true), "create root +target");

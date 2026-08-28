@@ -20,17 +20,14 @@
 #
 #   gen                 2/368 cases fail, both on P-04
 #   fuzz                1 failure at op #37, also P-04
-#   trace               119 ok / 7 failed — 3 are the missing `debug.messages`
-#                       egress tap, 4 are rule divergences (P-04, P-05, T-06 x2)
+#   trace               121 ok / 6 failed — 3 are the missing `debug.messages`
+#                       egress tap, 3 are rule divergences (P-04, T-06 x2)
 #   indefinite-selftest 3 of 9 fail — model-side only, no server involved
 #
 #   P-04  register_callback on a non-awaitable ("internal") awaited promise:
 #         model wants 422, server answers 200. The server checks that the
 #         AWAITER carries resonate:target but has no awaitability notion for
 #         the AWAITED side at all — one root cause behind gen, fuzz and trace.
-#   P-05  register_listener "poll://bad": model wants 400, server answers 200.
-#         resonate_core::is_valid_address is `Url::parse(..).is_ok()`, and that
-#         string does parse — the two disagree on what a poll address is.
 #   T-06  task.suspend with duplicate awaited ids (model 400) and awaiting an
 #         internal promise (model 422): server answers 200 to both.
 #
