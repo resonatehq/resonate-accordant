@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Built from the sibling accordant checkout rather than the 0.1.6 package:
+       the happens-before overload of Spec.AllowsConcurrent (upstream #31) that
+       HistoryTests needs landed after 0.1.6 and is unreleased on NuGet as of
+       2026-08-13 (repo is at 0.1.7). Wiring mirrors upstream's own test
+       projects. Revert to a PackageReference once 0.1.7 publishes. -->
+  <ItemGroup>
+    <ProjectReference Include="../accordant/Accordant.Operations/Accordant.Operations.csproj" />
+    <ProjectReference Include="../accordant/Accordant.SourceGenerator/Accordant.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,12 @@
+# .NET build output
+**/bin/
+**/obj/
+
+# Node
+node_modules/
+
+# Resonate server local state & logs
+resonate.db
+resonate.db-shm
+resonate.db-wal
+*.log
