@@ -19,6 +19,36 @@ own header puts it, a difference may be deliberate.
 
 Measured 2026-08-28 against `core-crate` @ `fa16959`.
 
+## Rulings
+
+Decided so far. The model already states each of these, so what a ruling
+changes is which of the other two documents is wrong.
+
+| rule | ruling | model | who is wrong |
+|---|---|---|---|
+| a valid address is any valid URL | server's answer | states it | **the spec** (`validation.lean:72` is scheme-aware) |
+| awaited not external → 422 | spec's answer | states it | the server |
+| duplicate awaited ids → 400 | spec's answer | states it | the server |
+| timer + target → 400 | spec's answer | states it | the server |
+
+The address ruling moves the three `register_listener` address rows out of
+group B: they are no longer this model quietly following the server, they are
+a pending change to `validation.lean`. The server's own rationale is the
+argument for it — validity has to be a pure function of the string, the same
+on a deployment whose poll worker is off as on one where it is on, and a
+predicate that knows `poll://`'s syntax and refuses `gcps://` outright is the
+scheme-aware check that reasoning rules out.
+
+Still open:
+
+- **the external gate on `register_listener`.** The spec answers it (422,
+  `external.lean:91`, the same gate `register_callback` has) and the model
+  states that answer, at a cost of 9 generated cases. Deciding the other way
+  is a third change to the spec, not to the server.
+- **origins.** The model says 400 across origins for `register_callback` and
+  `suspend`, matching the server; the spec has no origin notion at all.
+- **group C**, where the model has no position to rule on yet.
+
 ## A. The model states the spec's answer — red today
 
 These are the failing legs. Each is the model reporting the server against the
