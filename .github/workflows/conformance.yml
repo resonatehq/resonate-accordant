@@ -18,18 +18,26 @@
 # legs are RED today, and deliberately left blocking — they are the findings,
 # not noise. A run showing anything beyond this list is a new divergence:
 #
-#   gen                 2/368 cases fail, both on P-04
+#   gen                 11/513 cases fail — 2 on P-04, 9 on P-05
 #   fuzz                1 failure at op #37, also P-04
-#   trace               121 ok / 6 failed — 3 are the missing `debug.messages`
-#                       egress tap, 3 are rule divergences (P-04, T-06 x2)
+#   trace               130 ok / 7 failed — 3 are the missing `debug.messages`
+#                       egress tap, 4 are rule divergences (P-02, P-04, T-06 x2)
 #   indefinite-selftest 3 of 9 fail — model-side only, no server involved
 #
-#   P-04  register_callback on a non-awaitable ("internal") awaited promise:
-#         model wants 422, server answers 200. The server checks that the
-#         AWAITER carries resonate:target but has no awaitability notion for
-#         the AWAITED side at all — one root cause behind gen, fuzz and trace.
-#   T-06  task.suspend with duplicate awaited ids (model 400) and awaiting an
-#         internal promise (model 422): server answers 200 to both.
+#   AWAITABILITY. One server gap, seen from three doors. The spec calls a
+#   promise external if it carries resonate:external, resonate:target, or
+#   resonate:timer, and refuses an await on anything else. The server checks
+#   only that the AWAITER is targeted; on the AWAITED side it has no such
+#   notion, so it admits every await:
+#     P-04  register_callback on an internal awaited (external.lean:74) — 422 vs 200
+#     P-05  register_listener on an internal awaited (external.lean:91) — 422 vs 200
+#     T-06  task.suspend awaiting an internal promise — 422 vs 200
+#   T-06 also covers suspend with duplicate awaited ids: model 400, server 200.
+#
+#   P-02  promise.create carrying BOTH resonate:timer and resonate:target:
+#         model wants 400, server answers 200. The combination is malformed —
+#         a target says a worker executes this promise, a timer says nothing
+#         does — and validation.lean:43 refuses it at every birth door.
 #
 # Passing today: concurrent, lease, poll (skips itself, no caps), races,
 # reorder, linz, invariant-selftest.

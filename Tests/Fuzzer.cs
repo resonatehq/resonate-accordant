@@ -284,15 +284,20 @@ public sealed class Fuzzer
             return (_spec.GetOperation("AdvanceClock"), new AdvanceClock(to), $"tick →{to - FuzzNow}");
         }
 
-        // Bias toward creates early so there's state to act on. Half the plain
-        // creates carry the external tag (awaitable, durable timeout, no task);
-        // the rest stay internal, feeding the not-awaitable 422 paths.
+        // Bias toward creates early so there's state to act on. Plain creates
+        // split three ways: the external tag, the timer tag (also awaitable,
+        // but its deadline RESOLVES it — the arm that puts a timer under random
+        // interleaving, where a deadline can land mid-burst), and neither,
+        // which stays internal and feeds the not-awaitable 422 paths.
         if (roll < 18 || _plainPromises.Count + _taskPromises.Count == 0)
         {
             var id = FreshId("p");
-            var external = _rng.NextDouble() < 0.5;
+            var tag = _rng.NextDouble();
+            var external = tag < 0.4;
+            var timer = !external && tag < 0.6;
+            var how = external ? " (external)" : timer ? " (timer)" : "";
             return (_spec.GetOperation("CreatePromise"),
-                new CreatePromise(id, NextDeadline(), "v", external), $"create {id}{(external ? " (external)" : "")}");
+                new CreatePromise(id, NextDeadline(), "v", external, Timer: timer), $"create {id}{how}");
         }
         if (roll < 30)
         {

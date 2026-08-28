@@ -12,8 +12,19 @@ public partial class PromiseState
     public string? ParamData { get; set; }
     public bool HasTarget { get; set; }
     public bool ExternalTag { get; set; }
+    public bool TimerTag { get; set; }
 
-    public bool IsExternal => HasTarget || ExternalTag;
+    /// <summary>
+    /// Awaitable from outside its own call graph — what gates register_callback,
+    /// register_listener and suspend, and what makes a timeout DURABLE rather
+    /// than a read-time projection.
+    ///
+    /// THREE disjuncts, per spec/02-abstract/state.lean:92
+    /// (`external = externalTag || targeted || isTimer`). The timer case is the
+    /// one that is easy to lose: a timer promise carries neither of the other
+    /// two tags, and awaiting one is the whole point of having it.
+    /// </summary>
+    public bool IsExternal => HasTarget || ExternalTag || TimerTag;
     public long CreatedAt { get; set; }
     public long? SettledAt { get; set; }
 
@@ -34,7 +45,9 @@ public partial class PromiseState
             return this;
 
         var projected = (PromiseState)Clone();
-        projected.Status = "rejected_timedout";
+        // A timer's deadline is its SUCCESS: it resolves. Only a non-timer's
+        // deadline rejects it (state.lean:111).
+        projected.Status = TimerTag ? "resolved" : "rejected_timedout";
         projected.SettledAt = TimeoutAt;
         return projected;
     }

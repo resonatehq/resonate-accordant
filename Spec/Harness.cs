@@ -20,9 +20,10 @@ public static partial class ResonateSpec
 
     private static bool TagsMatch(Dictionary<string, string>? observed, PromiseState p)
     {
-        var expected = p.HasTarget ? Harness.TargetTags
-            : p.ExternalTag ? Harness.ExternalTags
-            : [];
+        var expected = new Dictionary<string, string>();
+        if (p.HasTarget) foreach (var kv in Harness.TargetTags) expected[kv.Key] = kv.Value;
+        if (p.ExternalTag) foreach (var kv in Harness.ExternalTags) expected[kv.Key] = kv.Value;
+        if (p.TimerTag) foreach (var kv in Harness.TimerTags) expected[kv.Key] = kv.Value;
         if ((observed?.Count ?? 0) != expected.Count) return false;
         return expected.All(kv => observed!.TryGetValue(kv.Key, out var v) && v == kv.Value);
     }

@@ -251,6 +251,34 @@ public static class ExampleTraces
             "appr's timeout resumes root4 (liveness)");
         await checker.Step(new AcquireTask("ex:root4", 1, "worker-1"), "re-acquire root4 v1 → acquired v2");
 
+        // --- timers ---
+        //
+        // The third way a promise is external. A timer carries neither of the
+        // other two tags, so a two-way `IsExternal` silently reads one as
+        // internal — not awaitable, timeout not durable — and no trace that
+        // never creates one can notice. These steps are that trace.
+        Console.WriteLine("\n--- timers ---");
+        await checker.Step(new CreatePromise("ex:tmr", now + 40_000, "ring", Timer: true),
+            "create timer (times out at +40s)");
+        // Awaitable BECAUSE it is a timer: nothing else about it says external.
+        await checker.Step(new CreatePromise("ex:root5", now + 100_000, "r", WithTarget: true), "create root5 +target");
+        await checker.Step(new AcquireTask("ex:root5", 0, "worker-1"), "acquire root5 → v1");
+        await checker.Step(new SuspendTask("ex:root5", 1, "ex:tmr"), "suspend root5 awaiting the timer → 200");
+        await checker.Step(new RegisterCallback("ex:tmr", "ex:root5"), "register_callback on a timer → 200 (external)");
+        // The deadline RESOLVES it. A non-timer would reject_timedout here.
+        await checker.Step(new AdvanceClock(now + 41_000), "tick past the timer's deadline");
+        await checker.Step(new GetPromise("ex:tmr"), "get timer → resolved (durable, settledAt = deadline)");
+        await checker.PollLiveness(new GetTask("ex:root5"),
+            s => !s.Tasks.TryGetValue("ex:root5", out var t5) || t5.Status != "suspended",
+            "the timer's deadline resumes root5 (liveness)");
+        // Born past its own deadline: the same rule, applied at birth.
+        await checker.Step(new CreatePromise("ex:tmrDead", now - 1_000, "late", Timer: true),
+            "create timer already past its deadline → born resolved");
+        // A target says a worker executes this promise; a timer says nothing
+        // does. Refused at the door, before the id is even read.
+        await checker.Step(new CreatePromise("ex:tmrBad", now + 200_000, "x", Timer: true, WithTarget: true),
+            "create timer WITH a target → 400 (malformed)");
+
         return checker.Report();
     }
 }

@@ -29,6 +29,15 @@ public static partial class ResonateSpec
     {
         var now = state.Now;
 
+        // Refused BEFORE the id is even read, so an existing promise does not
+        // mask it (external.lean:36 — the guard precedes readObject).
+        if (req.Timer && req.WithTarget)
+        {
+            return Expect.That<Response>(r => r.Status == 400,
+                    "P-02: resonate:timer with resonate:target → 400 (malformed)")
+                .SameState();
+        }
+
         if (state.Promises.TryGetValue(req.Id, out var existing))
         {
             var (st, val, settledAt) = Project(existing, now);
@@ -44,7 +53,7 @@ public static partial class ResonateSpec
             {
                 Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
                 ParamData = req.Data, CreatedAt = now,
-                HasTarget = req.WithTarget, ExternalTag = req.External,
+                HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
             };
             return Expect.That<Response>(
                     r => r.Status == 200 && PromiseMatches(r, req.Id, fresh, "pending", null, null),
@@ -55,29 +64,32 @@ public static partial class ResonateSpec
                     {
                         Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
                         ParamData = req.Data, CreatedAt = s.Now,
-                        HasTarget = req.WithTarget, ExternalTag = req.External,
+                        HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
                     };
                     if (req.WithTarget)
                         s.Tasks[req.Id] = new TaskState { Status = "pending", Version = 0 };
                 });
         }
 
+        // Born past its own deadline. A timer is born RESOLVED — the same rule
+        // as the projection, applied at birth (state.lean:311).
+        var bornState = req.Timer ? "resolved" : "rejected_timedout";
         var born = new PromiseState
         {
-            Status = "rejected_timedout", Value = null, TimeoutAt = req.TimeoutAt,
+            Status = bornState, Value = null, TimeoutAt = req.TimeoutAt,
             ParamData = req.Data, CreatedAt = req.TimeoutAt, SettledAt = req.TimeoutAt,
-            HasTarget = req.WithTarget, ExternalTag = req.External,
+            HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
         };
         return Expect.That<Response>(
-                r => r.Status == 200 && PromiseMatches(r, req.Id, born, "rejected_timedout", null, req.TimeoutAt),
-                "P-02: fresh create past timeout → born rejected_timedout (created/settled = deadline)")
+                r => r.Status == 200 && PromiseMatches(r, req.Id, born, bornState, null, req.TimeoutAt),
+                $"P-02: fresh create past timeout → born {bornState} (created/settled = deadline)")
             .ThenState<ServerState>(s =>
             {
                 s.Promises[req.Id] = new PromiseState
                 {
-                    Status = "rejected_timedout", Value = null, TimeoutAt = req.TimeoutAt,
+                    Status = bornState, Value = null, TimeoutAt = req.TimeoutAt,
                     ParamData = req.Data, CreatedAt = req.TimeoutAt, SettledAt = req.TimeoutAt,
-                    HasTarget = req.WithTarget, ExternalTag = req.External,
+                    HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
                 };
                 if (req.WithTarget)
                     s.Tasks[req.Id] = new TaskState { Status = "fulfilled", Version = 0 };
@@ -205,6 +217,15 @@ public static partial class ResonateSpec
         if (!state.Promises.TryGetValue(req.Awaited, out var awaited))
         {
             return Expect.That<Response>(r => r.Status == 404, "P-05: awaited missing → 404")
+                .SameState();
+        }
+
+        // The same gate register_callback has, on the same definition: you may
+        // not listen on a promise that is not awaitable from outside its own
+        // call graph (external.lean:91).
+        if (!awaited.IsExternal)
+        {
+            return Expect.That<Response>(r => r.Status == 422, "P-05: awaited is INTERNAL → 422 (not awaitable)")
                 .SameState();
         }
 

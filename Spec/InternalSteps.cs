@@ -55,7 +55,9 @@ public static partial class ResonateSpec
 
                 foreach (var id in s.Promises.Keys.ToList())
                     if (s.Promises[id].IsExternal && IsTimedOut(s.Promises[id], s.Now))
-                        SettleAndFulfillTask(s, id, "rejected_timedout", null, s.Promises[id].TimeoutAt);
+                        SettleAndFulfillTask(s, id,
+                            s.Promises[id].TimerTag ? "resolved" : "rejected_timedout",
+                            null, s.Promises[id].TimeoutAt);
             });
 
         var now = Math.Max(req.To, state.Now);

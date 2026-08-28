@@ -40,6 +40,10 @@ public static class GeneratedTests
             get.With(new GetPromise("g:q"), "get q (missing)"),
 
             create.With(new CreatePromise("g:tk", far, "work", WithTarget: true), "create tk +target"),
+            // A timer: external by its third disjunct alone, and the generator
+            // can now walk it into every await the pool reaches.
+            create.With(new CreatePromise("g:tm", far, "ring", Timer: true), "create tm (timer)"),
+            regcb.With(new RegisterCallback("g:tm", "g:tk"), "register_callback tm←tk"),
             spec.GetOperation<CreateTask, Response>("CreateTask").With(new CreateTask("g:tc", far, "self", true), "task.create tc"),
             acquire.With(new AcquireTask("g:tk", 0, "w1"), "acquire tk v0"),
             acquire.With(new AcquireTask("g:tk", 1, "w1"), "acquire tk v1"),

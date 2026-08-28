@@ -21,6 +21,27 @@ public sealed class Harness
         ["resonate:external"] = "true",
     };
 
+    /// <summary>Timer: awaitable, no task, and its deadline resolves it.</summary>
+    public static readonly Dictionary<string, string> TimerTags = new()
+    {
+        ["resonate:timer"] = "true",
+    };
+
+    /// <summary>
+    /// The tags a create request actually carries. Composed rather than
+    /// selected, so Timer+WithTarget puts BOTH on the wire — that combination
+    /// is malformed, and a model that could not spell it could not test its
+    /// refusal.
+    /// </summary>
+    public static Dictionary<string, string>? TagsFor(CreatePromise r)
+    {
+        var tags = new Dictionary<string, string>();
+        if (r.WithTarget) foreach (var kv in TargetTags) tags[kv.Key] = kv.Value;
+        if (r.External) foreach (var kv in ExternalTags) tags[kv.Key] = kv.Value;
+        if (r.Timer) foreach (var kv in TimerTags) tags[kv.Key] = kv.Value;
+        return tags.Count == 0 ? null : tags;
+    }
+
     public Spec<ServerState> Spec { get; }
     public Client Client { get; }
 
@@ -34,8 +55,7 @@ public sealed class Harness
 
         var exec = Spec.ExecuteWith<Client>()
             .BindAsync<CreatePromise, Response>("CreatePromise",
-                (c, r) => c.PromiseCreate(r.Id, r.TimeoutAt, Value.Of(r.Data),
-                    r.WithTarget ? TargetTags : r.External ? ExternalTags : null))
+                (c, r) => c.PromiseCreate(r.Id, r.TimeoutAt, Value.Of(r.Data), TagsFor(r)))
             .BindAsync<GetPromise, Response>("GetPromise",
                 (c, r) => c.PromiseGet(r.Id))
             .BindAsync<SettlePromise, Response>("SettlePromise",
@@ -58,8 +78,7 @@ public sealed class Harness
             .BindAsync<FenceTask, Response>("FenceTask",
                 async (c, r) => UnwrapFence(await c.TaskFence(r.Id, r.Version,
                     r.Create is { } cr
-                        ? Client.PromiseCreateAction(cr.Id, cr.TimeoutAt, Value.Of(cr.Data),
-                            cr.WithTarget ? TargetTags : cr.External ? ExternalTags : null)
+                        ? Client.PromiseCreateAction(cr.Id, cr.TimeoutAt, Value.Of(cr.Data), TagsFor(cr))
                         : Client.PromiseSettleAction(r.Settle!.Id, r.Settle.State, Value.Of(r.Settle.Data)))))
             .BindAsync<RegisterCallback, Response>("RegisterCallback",
                 (c, r) => c.PromiseRegisterCallback(r.Awaited, r.Awaiter))

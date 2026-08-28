@@ -10,9 +10,16 @@ namespace ResonateConformance;
 /// <summary>promise.create — ONE op for the ONE wire request; the tags decide
 /// everything else. WithTarget adds Harness.TargetTags (a paired task is
 /// spawned); External adds the resonate:external tag (awaitable, durable
-/// timeout armed, no task).</summary>
+/// timeout armed, no task); Timer adds resonate:timer (awaitable, and its
+/// deadline RESOLVES it rather than rejecting it — nothing executes it).
+///
+/// Timer with WithTarget is the malformed combination the specification
+/// refuses at every door a promise can be born through (validation.lean
+/// `timerTargeted`): a target says a worker owns this promise's execution, a
+/// timer says nothing executes it at all. Constructible on purpose — the 400
+/// is a rule the model has to be able to state.</summary>
 public sealed record CreatePromise(string Id, long TimeoutAt, string? Data,
-    bool External = false, bool WithTarget = false);
+    bool External = false, bool WithTarget = false, bool Timer = false);
 public sealed record GetPromise(string Id);
 public sealed record SettlePromise(string Id, string State, string? Data);
 
