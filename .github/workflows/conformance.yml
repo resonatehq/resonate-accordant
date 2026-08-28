@@ -13,6 +13,29 @@
 # `head["resonate:debug_time"]` is honoured, which is what the harness's driven
 # clock and its per-case reset need. Without it those ops are 403 and the
 # injected time is ignored.
+#
+# BASELINE against resonatehq/resonate@core-crate, measured 2026-08-28. These
+# legs are RED today, and deliberately left blocking — they are the findings,
+# not noise. A run showing anything beyond this list is a new divergence:
+#
+#   gen                 2/368 cases fail, both on P-04
+#   fuzz                1 failure at op #37, also P-04
+#   trace               119 ok / 7 failed — 3 are the missing `debug.messages`
+#                       egress tap, 4 are rule divergences (P-04, P-05, T-06 x2)
+#   indefinite-selftest 3 of 9 fail — model-side only, no server involved
+#
+#   P-04  register_callback on a non-awaitable ("internal") awaited promise:
+#         model wants 422, server answers 200. The server checks that the
+#         AWAITER carries resonate:target but has no awaitability notion for
+#         the AWAITED side at all — one root cause behind gen, fuzz and trace.
+#   P-05  register_listener "poll://bad": model wants 400, server answers 200.
+#         resonate_core::is_valid_address is `Url::parse(..).is_ok()`, and that
+#         string does parse — the two disagree on what a poll address is.
+#   T-06  task.suspend with duplicate awaited ids (model 400) and awaiting an
+#         internal promise (model 422): server answers 200 to both.
+#
+# Passing today: concurrent, lease, poll (skips itself, no caps), races,
+# reorder, linz, invariant-selftest.
 
 name: Conformance
 
@@ -138,15 +161,12 @@ jobs:
             args: invariant-selftest
           - name: indefinite self-test
             args: indefinite-selftest
-          # `trace` asserts on the egress outbox via `debug.messages`, an op the
-          # core-crate server does not implement (400 Unknown operation), so its
-          # three ExpectMessages assertions fail there. Kept visible but
-          # non-blocking; drop continue-on-error once the tap exists server-side.
-          - name: example traces (egress tap missing on core-crate)
+          # Three of trace's seven failures are the missing `debug.messages`
+          # egress tap — an op the server does not implement (400 Unknown
+          # operation), which no server change short of adding the tap can fix.
+          # The other four are real divergences, listed at the top of this file.
+          - name: example traces
             args: trace
-            soft: true
-
-    continue-on-error: ${{ matrix.soft || false }}
 
     steps:
       - name: Checkout resonate-accordant
