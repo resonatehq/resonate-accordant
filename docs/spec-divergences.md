@@ -46,7 +46,16 @@ Still open:
   states that answer, at a cost of 9 generated cases. Deciding the other way
   is a third change to the spec, not to the server.
 - **origins.** The model says 400 across origins for `register_callback` and
-  `suspend`, matching the server; the spec has no origin notion at all.
+  `suspend`, matching the server. `main` has no origin notion at all, but the
+  branch `claude/id-origin-suffix` (`077ef6c`) adds one — `Ident` as a
+  structured origin/suffix pair, `sameOrigin` doors on `promiseRegisterCallback`,
+  `taskSuspend` and `taskFence`, and the invariant
+  `well_formed_promise_callbacks_same_origin`. Two of those three rows resolve
+  in the server's favour when it lands. `taskFence` does not: that branch
+  refuses a fence whose action targets another origin and the server answers
+  200 to exactly that (measured). It matters beyond a table row —
+  `CheckPartitionable` treats a cross-origin fence as a partitioning hazard, so
+  partitioned replay rests on a rule nothing enforces.
 - **group C**, where the model has no position to rule on yet.
 
 ## A. The model states the spec's answer — red today
@@ -85,10 +94,18 @@ The three address rows were the spec's answer until commit `3efe9f3` changed
 `http:// || https:// || (poll:// && contains '@')` — the predicate the model
 originally had.
 
-The origin rows were never the spec's answer: **there is no origin notion
-anywhere in `spec/`**. `promiseRegisterCallback` goes self→400, awaited
-missing→404, awaiter missing→422, awaiter untargeted→422, awaited not
-external→422, and stops.
+The origin rows are the spec's answer only on `main`, which has no origin
+notion at all. The branch `claude/id-origin-suffix` (`077ef6c`) adds one —
+`Ident` as a structured origin/suffix pair, `sameOrigin` doors on
+`promiseRegisterCallback`, `taskSuspend` and `taskFence`, and the invariant
+`well_formed_promise_callbacks_same_origin`. Two of those three rows resolve
+when it lands, in the server's favour.
+
+`taskFence` does not. The specification branch refuses a fence whose action
+targets another origin; the server answers 200 to exactly that. Measured, not
+inferred. It matters more than a row in a table: `CheckPartitionable` treats a
+cross-origin fence as a partitioning hazard, so soundness of partitioned replay
+rests on a rule nothing enforces.
 
 ## C. The model has no position — it cannot spell the scenario
 
