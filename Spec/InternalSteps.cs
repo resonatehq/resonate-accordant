@@ -43,7 +43,7 @@ public static partial class ResonateSpec
                     t.Status = "pending";          // version UNCHANGED — reclaim, not a new fence
                     t.Ttl = null; t.Pid = null;
                 },
-                name: $"lease-expiry:{kv.Key}"))
+                name: $"lease-timeout:{kv.Key}"))   // R5 processLeaseTimeout
             .ToArray();
 
     internal static ExpectedOutcomes AdvanceClockStep(AdvanceClock req, ServerState state)
