@@ -64,6 +64,14 @@ public static partial class ResonateSpec
     /// into the clock step otherwise. Folding asserts the fired state where the
     /// server may not have fired yet — sound precisely BECAUSE no prediction
     /// depends on the difference.
+    ///
+    /// The re-arm instant is the specification's: a dial out. The Go
+    /// linearizability checker reaches the same unobservability conclusion and
+    /// picks differently — `next = now`, the PERMISSIVE representative, which
+    /// keeps R6 enabled at every later instant and so never removes a firing a
+    /// larger value would have allowed (`valid/porc/internal_steps.go`). That
+    /// argument only bites once the emission is observable; revisit this the
+    /// day the egress tap lands and this becomes a trigger for real.
     /// </summary>
     private static IStepFunction[] RetryTriggers(ServerState state, long now) =>
         !Capabilities.Egress ? [] :
