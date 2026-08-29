@@ -29,8 +29,6 @@ public static partial class ResonateSpec
     {
         var now = state.Now;
 
-        // Refused BEFORE the id is even read, so an existing promise does not
-        // mask it (external.lean:36 — the guard precedes readObject).
         if (req.Timer && req.WithTarget)
         {
             return Expect.That<Response>(r => r.Status == 400,
@@ -71,8 +69,6 @@ public static partial class ResonateSpec
                 });
         }
 
-        // Born past its own deadline. A timer is born RESOLVED — the same rule
-        // as the projection, applied at birth (state.lean:311).
         var bornState = req.Timer ? "resolved" : "rejected_timedout";
         var born = new PromiseState
         {
@@ -220,9 +216,6 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        // The same gate register_callback has, on the same definition: you may
-        // not listen on a promise that is not awaitable from outside its own
-        // call graph (external.lean:91).
         if (!awaited.IsExternal)
         {
             return Expect.That<Response>(r => r.Status == 422, "P-05: awaited is INTERNAL → 422 (not awaitable)")
@@ -644,9 +637,9 @@ public static partial class ResonateSpec
                 var (id, t) = (kv.Key, kv.Value);
                 if (!state.Promises.TryGetValue(id, out var p)) return false;
                 if (!p.HasTarget) return false;
-                if (p.Project(now).IsTerminal) return false;          // own promise must be live
+                if (p.Project(now).IsTerminal) return false;
                 if (t.State == "pending") return true;
-                if (t.State == "acquired" && now >= t.LeaseTimeoutAt) return true;  // R5
+                if (t.State == "acquired" && now >= t.LeaseTimeoutAt) return true;
                 if (t.State != "suspended") return false;
                 return state.Promises.Any(kv2 =>
                     kv2.Value.Callbacks.Contains(id) && kv2.Value.Project(now).IsTerminal);

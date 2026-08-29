@@ -3,7 +3,7 @@ using Microsoft.Accordant;
 namespace ResonateConformance;
 
 public static partial class ResonateSpec
-{    /// <summary>The ttl the harness passes for task.create (must match the adapter's binding).</summary>
+{
     private const long TaskCreateTtl = 3_600_000;
 
     private static bool IsTimedOut(PromiseState p, long now) =>
@@ -28,23 +28,12 @@ public static partial class ResonateSpec
         return expected.All(kv => observed!.TryGetValue(kv.Key, out var v) && v == kv.Value);
     }
 
-    /// <summary>
-    /// An id's <b>origin</b>: everything before the first ':'. Ids have the
-    /// form <c>&lt;promiseId&gt;:&lt;lineage&gt;</c>, so every promise a single
-    /// root spawned shares one, and an id with no ':' is its own.
-    /// </summary>
     private static string Origin(string id)
     {
         var i = id.IndexOf(':');
         return i < 0 ? id : id[..i];
     }
 
-    /// <summary>
-    /// Two ids belong to the same call graph. An await may only cross promises
-    /// that do: the awaited is a promise the awaiter's own lineage produced,
-    /// never an unrelated one, so this is a property of the REQUEST and is
-    /// decided before any state is consulted.
-    /// </summary>
     private static bool SameOrigin(string a, string b) => Origin(a) == Origin(b);
 
     private static bool PromiseMatches(Response r, string id, PromiseState p,
@@ -74,24 +63,6 @@ public static partial class ResonateSpec
             && rec.Ttl == expectedTtl;
     }
 
-    /// <summary>
-    /// An address is valid iff it parses as a URI WITH A SCHEME. Nothing past
-    /// the scheme is checked — not the authority, not the shape a particular
-    /// scheme expects. `poll://group` (no `@`) is therefore admitted here and
-    /// fails later, at delivery, in whichever worker owns `poll://`.
-    ///
-    /// That shallowness is the server's stated contract, not an omission of
-    /// ours: validity has to be a pure function of the string, identical on
-    /// every deployment, because a server's enabled transports must not change
-    /// which requests it accepts (resonate-core `address.rs`). A scheme-aware
-    /// model would report divergences the server is right to disagree with.
-    ///
-    /// Uri.TryCreate alone is NOT this predicate. On Unix it reads a bare path
-    /// like "/relative/path" as an implicit file:// URI and accepts it, where
-    /// Rust's url::Url::parse rejects it as relative-without-base. The explicit
-    /// scheme prefix is what closes that gap; with it the two agree across the
-    /// corpus in `address.rs`'s own tests, valid and invalid alike.
-    /// </summary>
     private static bool AddressValid(string addr)
     {
         var trimmed = addr.Trim();

@@ -1,21 +1,5 @@
 using ResonateConformance;
 
-// Conformance-model driver. Modes (arg 1): trace | gen | concurrent | lease |
-// races [iters] | fuzz [seed] [ops] | invariant-selftest | all (default).
-//
-//   trace       hand-written example traces, step-checked via spec.Allows
-//   gen         Accordant-generated sequential cases (GenerateTests + RunTests)
-//   concurrent  races + generated concurrent cases via spec.AllowsConcurrent
-//   lease       lease / timeout behavior, driven by the injected clock
-//   races       targeted suspend‖settle repros + stranded-task liveness check
-//   reorder     shuffled guided sequences replayed lockstep (divergence witness)
-//   linz        free-form multi-client histories checked for linearizability
-//   fuzz        continuous guided/random mix of sequential + concurrent ops
-//   invariant-selftest  prove the server-bug detector actually fires
-//   indefinite-selftest prove the optional indefinite-failure modeling works
-//
-// All modes share one spec + bound raw-HTTP adapter (Harness). No SDK.
-
 var mode = args.Length > 0 ? args[0] : "all";
 var baseUrl = Environment.GetEnvironmentVariable("RESONATE_URL") ?? "http://localhost:8001";
 Console.WriteLine($"Resonate conformance model — {mode} — {baseUrl}\n");

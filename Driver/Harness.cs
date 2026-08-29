@@ -2,11 +2,6 @@ using Microsoft.Accordant;
 
 namespace ResonateConformance;
 
-/// <summary>
-/// Shared wiring: builds the spec, a client with a controllable logical clock,
-/// and binds every model operation to a real wire call. Reused by the
-/// hand-driven trace, the generated sequential runner, and the concurrent runner.
-/// </summary>
 public sealed class Harness
 {
     public static readonly Dictionary<string, string> TargetTags = new()
@@ -15,24 +10,16 @@ public sealed class Harness
         ["resonate:target"] = "poll://any@testgroup",
     };
 
-    /// <summary>Explicitly-external promise: awaitable + durable timeout, no task.</summary>
     public static readonly Dictionary<string, string> ExternalTags = new()
     {
         ["resonate:external"] = "true",
     };
 
-    /// <summary>Timer: awaitable, no task, and its deadline resolves it.</summary>
     public static readonly Dictionary<string, string> TimerTags = new()
     {
         ["resonate:timer"] = "true",
     };
 
-    /// <summary>
-    /// The tags a create request actually carries. Composed rather than
-    /// selected, so Timer+WithTarget puts BOTH on the wire — that combination
-    /// is malformed, and a model that could not spell it could not test its
-    /// refusal.
-    /// </summary>
     public static Dictionary<string, string>? TagsFor(CreatePromise r)
     {
         var tags = new Dictionary<string, string>();
@@ -45,7 +32,6 @@ public sealed class Harness
     public Spec<ServerState> Spec { get; }
     public Client Client { get; }
 
-    /// <summary>The injected logical clock (epoch ms). Tick moves it.</summary>
     public long Now { get; set; } = 1_000_000;
 
     public Harness(HttpClient http, bool trace = false)
@@ -93,9 +79,6 @@ public sealed class Harness
                 return await c.DebugTick(r.To);
             });
 
-        // Capability-gated bindings: the operation is not in the spec unless the
-        // target declares it, so binding it unconditionally would fail to
-        // resolve. Declared → modelled and bound; absent → never sent.
         if (Capabilities.Poll)
             exec = exec.BindAsync<PollTask, Response>("PollTask",
                 (c, r) => c.TaskPoll(r.Group, r.Pid, r.Ttl, r.Limit));
@@ -103,12 +86,6 @@ public sealed class Harness
         exec.Done();
     }
 
-    /// <summary>
-    /// task.fence nests the inner action's result on success (Lean:
-    /// `{ status := 200, action := some res }`). Unwrap it into a plain
-    /// Response so the fence expectations can delegate to P-02/P-03's
-    /// handlers unchanged. Guard failures (400/404/409) pass through.
-    /// </summary>
     private static Response UnwrapFence(Response r)
     {
         if (r.Status != 200

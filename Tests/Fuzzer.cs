@@ -2,22 +2,6 @@ using Microsoft.Accordant;
 
 namespace ResonateConformance;
 
-/// <summary>
-/// Continuous fuzz/stress runner. Generates a random mix of SEQUENTIAL and
-/// CONCURRENT operations, drives them against the live server, and validates
-/// every observed response through the spec — spec.Allows for sequential steps
-/// and spec.AllowsConcurrent for concurrent bursts — threading ONE StateProfile
-/// forward across the whole run.
-///
-/// Extras requested:
-///  - when a promise reaches a terminal state, it is polled a few extra times to
-///    confirm it does NOT flip-flop (stickiness), each poll checked via the spec;
-///  - periodically rolls to a fresh id "epoch" so state doesn't grow unbounded
-///    and settled promises get replaced by new work;
-///  - fully deterministic given a seed, so any failure reproduces.
-///
-/// A single conformance failure stops the run and prints the reproducing step.
-/// </summary>
 public sealed class Fuzzer
 {
     private readonly Harness _harness;
@@ -26,40 +10,27 @@ public sealed class Fuzzer
     private readonly int _seed;
 
     private StateProfile _profile = null!;
-    // Use a large, realistic epoch-ms clock (~2065): all logical timestamps sit far
-    // beyond the real wall clock, so the server's BACKGROUND (wall-clock) timeout
-    // loop never interferes — time moves ONLY when we tick. Deadlines are a mix:
-    // far-future (never fire) and NEAR (a few seconds past _now), so sequential
-    // ticks genuinely fire timeouts mid-fuzz — durable settle, task fulfillment,
-    // and awaiter resumes all under random interleaving.
-    private const long FuzzNow = 3_000_000_000_000; // ~2065
-    private const long FuzzFar = 9_000_000_000_000; // ~2255, always future
+
+    private const long FuzzNow = 3_000_000_000_000;
+    private const long FuzzFar = 9_000_000_000_000;
     private long _now = FuzzNow;
 
     private long NextDeadline() =>
         _rng.NextDouble() < 0.30 ? _now + 3_000 + _rng.Next(15_000) : FuzzFar;
 
-    // Shadow bookkeeping so we can generate MEANINGFUL ops referencing live ids.
     private int _epoch;
-    private readonly List<string> _plainPromises = [];   // created without target
-    private readonly List<string> _taskPromises = [];     // created with target (has a task)
+    private readonly List<string> _plainPromises = [];
+    private readonly List<string> _taskPromises = [];
     private int _idCounter;
 
     private int _seqOk, _concOk, _pollOk, _fails;
     private readonly List<string> _history = [];
     private readonly Invariants _inv = new();
 
-    // GUIDANCE (sim/guided.go's IJON idea): read the CURRENT model state to
-    // satisfy version fences and steer toward cascades. Reading any candidate
-    // state is fine — guidance only shapes generation; correctness stays with
-    // the checker. A (1 - guided) fraction stays pure-random so the workload
-    // keeps its adversarial edges (wrong versions, ghosts, bogus states).
     private readonly double _guidedProb = 0.85;
     private ServerState? ModelState =>
         _profile?.StatesAndStepFunctions is { Count: > 0 } s ? (ServerState)s[0].State : null;
 
-    // MILESTONES (sim/baseline_test.go's idea): measure how often the run
-    // actually reaches the deep states, so coverage is a number, not a hope.
     private int _msAcquired, _msSuspended, _msSettledWithAwaiters, _msResumesArmed,
         _msTimeoutsWithAwaiters, _msGuided;
 
@@ -87,12 +58,9 @@ public sealed class Fuzzer
 
         for (int i = 0; i < ops && _fails == 0; i++)
         {
-            // Roll to a fresh id namespace every ~40 ops (replaces settled work).
+
             if (i > 0 && i % 40 == 0) NewEpoch();
 
-            // 30% concurrent burst, 70% sequential. Ticks are sequential-only:
-            // a tick concurrent with another op would race the single injected
-            // clock both the model and the other request's debug_time share.
             if (_rng.NextDouble() < _concProb)
                 await ConcurrentBurst(i);
             else
@@ -121,7 +89,6 @@ public sealed class Fuzzer
         return _fails == 0 && _inv.Violations.Count == 0 ? 0 : 1;
     }
 
-    // ---- sequential step: one op, checked with spec.Allows ---------------------
     private async Task SequentialStep(int i)
     {
         var before = ModelState;
@@ -138,13 +105,9 @@ public sealed class Fuzzer
         await MaybePollTerminal(i, req);
     }
 
-    // ---- concurrent burst: 2-4 ops fired together, via AllowsConcurrent --------
     private async Task ConcurrentBurst(int i)
     {
-        // Wide bursts only from a SINGLE clean state: the linearization search is
-        // exponential in (candidates × armed triggers × burst size), so when
-        // in-flight resumes are pending we stay at pairs and let reads collapse
-        // the profile first.
+
         var clean = _profile.StatesAndStepFunctions.Count == 1
                     && _profile.StatesAndStepFunctions[0].StepFunctions is not { Count: > 0 };
         int k = clean ? 2 + _rng.Next(3) : 2;
@@ -178,10 +141,6 @@ public sealed class Fuzzer
         await CollapseOneResume(i, picks[0].req);
     }
 
-    // ---- branch collapse: observe suspended tasks while triggers are armed -----
-    // Each task.get prunes profile candidates to what the server actually reports,
-    // keeping the linearization search tractable (and, incidentally, WITNESSING
-    // resumes land under fuzz).
     private async Task CollapseOneResume(int i, object req)
     {
         var anyArmed = _profile.StatesAndStepFunctions.Count > 1
@@ -206,7 +165,6 @@ public sealed class Fuzzer
         }
     }
 
-    // ---- milestone counting (deep-state coverage as a number) ------------------
     private void CountMilestones(object req, object resp, ServerState? before)
     {
         var r = resp as Response;
@@ -238,12 +196,9 @@ public sealed class Fuzzer
         }
     }
 
-    // ---- stickiness: poll a terminal promise a few times, expect no flip-flop --
     private async Task MaybePollTerminal(int i, object req)
     {
-        // First: if this op armed in-flight resumes, poll ONE awaiter's task.get —
-        // this both observes the resume landing AND collapses profile branches so
-        // the linearization search stays tractable.
+
         await CollapseOneResume(i, req);
         if (_fails > 0) return;
 
@@ -270,25 +225,17 @@ public sealed class Fuzzer
         }
     }
 
-    // ---- random op generation, referencing live ids ---------------------------
     private (IOperation op, object req, string label) NextOp(bool allowTick = true)
     {
         long far = FuzzFar;
         int roll = _rng.Next(100);
 
-        // Sequential-only: advance the clock, firing everything due (timeouts
-        // cascade: durable settle + task fulfillment + in-flight awaiter resumes).
         if (allowTick && roll < 6 && _rng.NextDouble() < 0.9)
         {
             var to = _now + 2_000 + _rng.Next(20_000);
             return (_spec.GetOperation("AdvanceClock"), new AdvanceClock(to), $"tick →{to - FuzzNow}");
         }
 
-        // Bias toward creates early so there's state to act on. Plain creates
-        // split three ways: the external tag, the timer tag (also awaitable,
-        // but its deadline RESOLVES it — the arm that puts a timer under random
-        // interleaving, where a deadline can land mid-burst), and neither,
-        // which stays internal and feeds the not-awaitable 422 paths.
         if (roll < 18 || _plainPromises.Count + _taskPromises.Count == 0)
         {
             var id = FreshId("p");
@@ -307,7 +254,7 @@ public sealed class Fuzzer
         }
         if (roll < 34)
         {
-            // task.create: atomic; usually fresh id, sometimes a live one → 409/422.
+
             var id = _rng.NextDouble() < 0.7 ? FreshId("tc") : AnyTask();
             var withTarget = _rng.NextDouble() < 0.9;
             var req = new CreateTask(id, far, "self", withTarget);
@@ -315,7 +262,7 @@ public sealed class Fuzzer
         }
         if (roll < 50)
         {
-            // Reads: promise or task (task.get also collapses in-flight resume branches).
+
             if (_rng.NextDouble() < 0.35)
             {
                 var tid = AnyTask();
@@ -326,27 +273,27 @@ public sealed class Fuzzer
         }
         if (roll < 62)
         {
-            // Guided: prefer settling a promise that HAS awaiters — the cascade.
+
             var id = TryGuidedPromise(p => p.State == "pending", preferAwaited: true) ?? AnyPromise();
-            // Mix all valid terminal states + occasionally a bogus one (→ 400).
+
             var st = _rng.Next(10) switch
             {
                 < 6 => "resolved",
                 < 8 => "rejected",
                 < 9 => "rejected_canceled",
-                _ => "bogus", // invalid → exercises the 400 branch
+                _ => "bogus",
             };
             return (_spec.GetOperation("SettlePromise"),
                 new SettlePromise(id, st, "r"), $"settle {id} {st}");
         }
         if (roll < 74)
         {
-            // Guided: a PENDING task at its CURRENT version — the fence satisfied.
+
             if (TryGuidedTask(t => t.State == "pending") is var (gid, gv) && gid is not null)
                 return (_spec.GetOperation("AcquireTask"),
                     new AcquireTask(gid, gv, "w" + _rng.Next(3)), $"acquire {gid} v{gv}");
             var id = AnyTask();
-            var v = _rng.Next(3); // sometimes-wrong version → exercises 409
+            var v = _rng.Next(3);
             return (_spec.GetOperation("AcquireTask"),
                 new AcquireTask(id, v, "w" + _rng.Next(3)), $"acquire {id} v{v}");
         }
@@ -379,9 +326,7 @@ public sealed class Fuzzer
         }
         if (roll < 95)
         {
-            // fence: run an inner action on ANOTHER promise (target != task id).
-            // The CREATE arm mints a fresh child (or dedups an existing id);
-            // the SETTLE arm settles one.
+
             if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
             {
                 if (_rng.NextDouble() < 0.4)
@@ -401,22 +346,21 @@ public sealed class Fuzzer
             var id = AnyTask();
             var child = AnyPromise();
             var v = _rng.Next(3);
-            // Occasionally force child==id to exercise the 400 branch.
+
             if (_rng.NextDouble() < 0.1) child = id;
             return (_spec.GetOperation("FenceTask"),
                 new FenceTask(id, v, Settle: new SettlePromise(child, "resolved", "fenced")),
                 $"fence {id} v{v} ⇒ settle {child}");
         }
-        // suspend
+
         {
-            // Guided: an ACQUIRED task at its version, awaiting a PENDING
-            // EXTERNAL promise that isn't itself — the cascade's first half.
+
             if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
             {
                 var gawaited = TryGuidedPromise(p => p.State == "pending" && p.IsExternal) ?? AnyPromise();
                 if (gawaited != gid)
                 {
-                    // Sometimes wait-any over TWO distinct externals.
+
                     if (_rng.NextDouble() < 0.25
                         && TryGuidedPromise(p => p.State == "pending" && p.IsExternal) is { } second
                         && second != gawaited && second != gid)
@@ -428,7 +372,7 @@ public sealed class Fuzzer
             var id = AnyTask();
             var awaited = AnyPromise();
             var v = _rng.Next(3);
-            // Occasionally malformed: empty actions or a duplicated awaited → 400.
+
             if (_rng.NextDouble() < 0.05) awaited = "";
             else if (_rng.NextDouble() < 0.05) awaited = $"{awaited},{awaited}";
             return (_spec.GetOperation("SuspendTask"),
@@ -436,9 +380,6 @@ public sealed class Fuzzer
         }
     }
 
-    // ---- guided pickers: satisfy the version fence from live model state -------
-    // Deterministic (ordered iteration + seeded rng). Returning null falls back
-    // to the adversarial random path.
     private (string?, int) TryGuidedTask(Func<TaskState, bool> pred)
     {
         if (_rng.NextDouble() >= _guidedProb || ModelState is not { } s) return (null, 0);
@@ -466,9 +407,6 @@ public sealed class Fuzzer
         return hits[_rng.Next(hits.Count)];
     }
 
-    // Occasionally reference a NON-existent id to exercise 404/422 paths.
-    // CONTENTION (sim's tiny-pool idea): bias toward a small hot set of ids so
-    // clients genuinely collide instead of spreading over the whole namespace.
     private string Pick(List<string> pool) =>
         pool.Count > 3 && _rng.NextDouble() < 0.6 ? pool[_rng.Next(3)] : pool[_rng.Next(pool.Count)];
 
@@ -485,8 +423,6 @@ public sealed class Fuzzer
         return Pick(_taskPromises);
     }
 
-    // One origin for the whole run: an await may only cross promises of the
-// same call graph, and everything the fuzzer mints belongs to one.
     private string FreshId(string kind) => $"fz:{kind}.{_epoch}.{_idCounter++}";
 
     private void TrackEffect(object req)
@@ -517,7 +453,7 @@ public sealed class Fuzzer
         Console.WriteLine($"       request:  {Serialize(req)}");
         Console.WriteLine($"       observed: {Serialize(resp)}");
         Console.WriteLine($"       reason:   {msg}");
-        // Dump the history lines that mention any id in the failing request.
+
         var ids = System.Text.RegularExpressions.Regex.Matches(Serialize(req) + " " + label, @"[pt]\.\d+\.\d+")
             .Select(m => m.Value).Distinct().ToList();
         Console.WriteLine($"       history touching {string.Join(",", ids)}:");

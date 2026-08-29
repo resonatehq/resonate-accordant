@@ -33,46 +33,13 @@ public static partial class ResonateSpec
     private static bool LeaseReclaimable(ServerState s, string taskId) =>
         s.Tasks.TryGetValue(taskId, out var t) && t.State == "acquired" && s.Now >= t.LeaseTimeoutAt;
 
-    /// <summary>
-    /// The redispatch cadence — the server's `tasks.retry_timeout` dial, whose
-    /// default is 30s (the specification's own default is 5s; either way the
-    /// value is unobservable here, see RetryTriggers).
-    /// </summary>
     private const long RetryTimeout = 30_000;
 
-    /// <summary>R6's guard: a pending task, its dispatch due, its promise still pending.</summary>
     private static bool RetryDue(ServerState s, string taskId) =>
         s.Tasks.TryGetValue(taskId, out var t) && t.State == "pending"
         && t.RetryTimeoutAt is { } due && s.Now >= due
         && s.Promises.TryGetValue(taskId, out var p) && p.State == "pending" && s.Now < p.TimeoutAt;
 
-    /// <summary>
-    /// R6 processRetryTimeout — redispatch a pending task whose dispatch clock
-    /// is due, and re-arm that clock a dial's width out.
-    ///
-    /// The machine makes firing a CHOICE, and R4 and R5 are modelled that way,
-    /// as triggers. R6 CANNOT be, while the egress tap is missing. Its two
-    /// effects are the re-arm and an `execute` on the outbox, and neither is
-    /// observable here: `TaskRecord` carries no dispatch clock, and
-    /// `debug.messages` is an op the server does not implement. A choice
-    /// nothing can observe is a branch nothing can ever collapse — every tick
-    /// would double the profile per pending task, and the trace hung on its
-    /// first tick when this was written as a trigger.
-    ///
-    /// So: as a trigger when the egress capability says the emission is
-    /// observable (and a read can therefore rejoin the branches), and folded
-    /// into the clock step otherwise. Folding asserts the fired state where the
-    /// server may not have fired yet — sound precisely BECAUSE no prediction
-    /// depends on the difference.
-    ///
-    /// The re-arm instant is the specification's: a dial out. The Go
-    /// linearizability checker reaches the same unobservability conclusion and
-    /// picks differently — `next = now`, the PERMISSIVE representative, which
-    /// keeps R6 enabled at every later instant and so never removes a firing a
-    /// larger value would have allowed (`valid/porc/internal_steps.go`). That
-    /// argument only bites once the emission is observable; revisit this the
-    /// day the egress tap lands and this becomes a trigger for real.
-    /// </summary>
     private static IStepFunction[] RetryTriggers(ServerState state, long now) =>
         !Capabilities.Egress ? [] :
         state.Tasks
@@ -83,7 +50,6 @@ public static partial class ResonateSpec
                 name: $"retry-timeout:{kv.Key}"))
             .ToArray();
 
-    /// <summary>R6 folded: every due dispatch re-armed, in one state.</summary>
     internal static void FoldRetryTimeouts(ServerState s)
     {
         if (Capabilities.Egress) return;
@@ -92,7 +58,6 @@ public static partial class ResonateSpec
                 s.Tasks[id].RetryTimeoutAt = s.Now + RetryTimeout;
     }
 
-    /// <summary>RetryDue reads `s.Now`; the trigger list is built for a FUTURE now.</summary>
     private static ServerState WithNow(ServerState s, long now)
     {
         if (s.Now >= now) return s;
@@ -101,11 +66,6 @@ public static partial class ResonateSpec
         return view;
     }
 
-    /// <summary>
-    /// R5 processLeaseTimeout's body: the lease runs out, the task returns to
-    /// pending at the SAME version — a reclaim, not a new fence — and the
-    /// dispatch clock takes over from the lease.
-    /// </summary>
     internal static void ReclaimLease(ServerState s, string taskId)
     {
         var t = s.Tasks[taskId];
@@ -120,7 +80,7 @@ public static partial class ResonateSpec
             .Select(IStepFunction (kv) => AsyncOperation.Create<ServerState>(
                 isTerminal: s => !LeaseReclaimable(s, kv.Key),
                 transition: s => ReclaimLease(s, kv.Key),
-                name: $"lease-timeout:{kv.Key}"))   // R5 processLeaseTimeout
+                name: $"lease-timeout:{kv.Key}"))
             .ToArray();
 
     internal static ExpectedOutcomes AdvanceClockStep(AdvanceClock req, ServerState state)

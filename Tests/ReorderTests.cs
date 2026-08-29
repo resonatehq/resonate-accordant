@@ -2,14 +2,6 @@ using Microsoft.Accordant;
 
 namespace ResonateConformance;
 
-/// <summary>
-/// The lockstep reorder test (sim/conformance_test.go's idea): generate a
-/// cascade-rich GUIDED sequence, SHUFFLE it (reaching the reordered deep states
-/// concurrency produces), then replay it SEQUENTIALLY against the live server,
-/// spec-checking every response with spec.Allows. Sequential + lockstep means
-/// any failure is a definitive model-vs-server conformance gap with the exact
-/// op and state as witness — cleanly separated from concurrency artifacts.
-/// </summary>
 public static class ReorderTests
 {
     public static async Task<int> Run(Harness harness, int seeds = 100, int len = 30)
@@ -22,7 +14,7 @@ public static class ReorderTests
         {
             var ops = GenerateGuided(len, seed);
             var rng = new Random(seed * 7);
-            // Fisher–Yates shuffle: the reordering is the whole point.
+
             for (int i = ops.Count - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
@@ -54,12 +46,6 @@ public static class ReorderTests
         return failed == 0 ? 0 : 1;
     }
 
-    /// <summary>
-    /// Generate a guided, cascade-rich op sequence against a tiny hand-rolled
-    /// shadow state (generation only — correctness stays with the checker at
-    /// replay time). ~85% of ops advance the cascade with satisfied fences;
-    /// the rest stay adversarial-random.
-    /// </summary>
     internal static List<(string op, object req, string label)> GenerateGuided(int len, int seed)
     {
         var rng = new Random(seed);
@@ -67,9 +53,9 @@ public static class ReorderTests
         string[] promises = ["rd:A", "rd:B", "rd:C"];
         string[] tasks = ["rd:TA", "rd:TB"];
 
-        var pState = new Dictionary<string, string>();          // promise → pending|settled
-        var tState = new Dictionary<string, (string st, int v)>(); // task → (state, version)
-        var awaits = new Dictionary<string, List<string>>();     // promise → suspended awaiters
+        var pState = new Dictionary<string, string>();
+        var tState = new Dictionary<string, (string st, int v)>();
+        var awaits = new Dictionary<string, List<string>>();
 
         var ops = new List<(string, object, string)>();
         while (ops.Count < len)
@@ -78,21 +64,21 @@ public static class ReorderTests
             int roll = rng.Next(6);
             switch (roll)
             {
-                case 0: // create a promise (external: the awaited pool must be awaitable)
+                case 0:
                 {
                     var id = promises[rng.Next(promises.Length)];
                     ops.Add(("CreatePromise", new CreatePromise(id, far, "v", External: true), $"create {id} (external)"));
                     pState.TryAdd(id, "pending");
                     break;
                 }
-                case 1: // create a task-backed promise
+                case 1:
                 {
                     var id = tasks[rng.Next(tasks.Length)];
                     ops.Add(("CreatePromise", new CreatePromise(id, far, "w", WithTarget: true), $"create+target {id}"));
                     if (tState.TryAdd(id, ("pending", 0))) pState.TryAdd(id, "pending");
                     break;
                 }
-                case 2: // acquire
+                case 2:
                 {
                     var live = tState.Where(kv => kv.Value.st == "pending").Select(kv => kv.Key).ToList();
                     if (guided && live.Count > 0)
@@ -110,7 +96,7 @@ public static class ReorderTests
                     }
                     break;
                 }
-                case 3: // suspend an acquired task awaiting a pending promise
+                case 3:
                 {
                     var acq = tState.Where(kv => kv.Value.st == "acquired").Select(kv => kv.Key).ToList();
                     var pend = pState.Where(kv => kv.Value == "pending").Select(kv => kv.Key)
@@ -132,7 +118,7 @@ public static class ReorderTests
                     }
                     break;
                 }
-                case 4: // settle — prefer a promise with awaiters (the cascade)
+                case 4:
                 {
                     var awaited = awaits.Where(kv => kv.Value.Count > 0 && pState.GetValueOrDefault(kv.Key) == "pending")
                         .Select(kv => kv.Key).ToList();
@@ -147,12 +133,12 @@ public static class ReorderTests
                     {
                         foreach (var t in aw)
                             if (tState.TryGetValue(t, out var ts) && ts.st == "suspended")
-                                tState[t] = ("pending", ts.v); // resume lands (simulation)
+                                tState[t] = ("pending", ts.v);
                         aw.Clear();
                     }
                     break;
                 }
-                default: // observe
+                default:
                 {
                     var id = tasks[rng.Next(tasks.Length)];
                     ops.Add(("GetTask", new GetTask(id), $"task.get {id}"));

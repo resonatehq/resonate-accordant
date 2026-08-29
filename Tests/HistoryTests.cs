@@ -2,19 +2,6 @@ using Microsoft.Accordant;
 
 namespace ResonateConformance;
 
-/// <summary>
-/// Free-form multi-client linearizability (sim's Porcupine idea, over the
-/// Accordant model): C clients fire contended ops with NO barriers, recording
-/// call/return intervals on a logical clock. Offline, Accordant searches for a
-/// sequential order that the spec allows, constrained by the recorded intervals
-/// as happens-before edges — threading StateProfiles, so the model's
-/// nondeterminism (in-flight resumes, projections) is handled natively, which a
-/// deterministic-model checker like Porcupine cannot do.
-///
-/// Honesty rules ported from sim/checker.go: the search runs under a wall-clock
-/// budget; exhausting it yields UNKNOWN (inconclusive), never a failure. A
-/// negative control (one corrupted response) proves the checker discriminates.
-/// </summary>
 public static class HistoryTests
 {
     private sealed record HistOp(int Client, string OpName, object Req, string Label,
@@ -43,7 +30,6 @@ public static class HistoryTests
             }
         }
 
-        // Negative control: corrupt one successful response; the checker must reject.
         {
             harness.Now = 1_000_000;
             await harness.Client.DebugReset();
@@ -74,10 +60,6 @@ public static class HistoryTests
         return violations == 0 ? 0 : 1;
     }
 
-    // ---- recording: C clients, no barriers, logical call/return stamps ---------
-    // Returns the history AND the post-seed profile: the seeds run sequentially
-    // and are threaded through spec.Allows, so the search starts from the state
-    // the concurrent clients actually saw.
     private static async Task<(List<HistOp>, StateProfile)> Record(
         Harness harness, int seed, int clients, int perClient)
     {
@@ -85,7 +67,6 @@ public static class HistoryTests
         var results = new System.Collections.Concurrent.ConcurrentBag<HistOp>();
         var spec = harness.Spec;
 
-        // Seed contended state sequentially: two plain promises + two task-backed.
         var profile = SystemChecker.Validate(new List<IList<IStepFunction>>(),
             new ServerState { Now = harness.Now }, null);
         foreach (var (opName, req) in Seed())
@@ -115,7 +96,7 @@ public static class HistoryTests
 
         static IEnumerable<(string, object)> Seed() =>
         [
-            // A/B external so awaits on them are legal (internal → 422).
+
             ("CreatePromise", new CreatePromise("hx:A", 9_000_000_000_000, "a", External: true)),
             ("CreatePromise", new CreatePromise("hx:B", 9_000_000_000_000, "b", External: true)),
             ("CreatePromise", new CreatePromise("hx:TA", 9_000_000_000_000, "w", WithTarget: true)),
@@ -142,19 +123,6 @@ public static class HistoryTests
         }
     }
 
-    // ---- linearizability, via Accordant's happens-before AllowsConcurrent ------
-    // The WHOLE history goes to the checker as one concurrent batch, with
-    // real-time precedence expressed as happens-before edges: op i must be
-    // linearized before op j exactly when i RETURNED before j was CALLED.
-    // Overlapping ops carry no edge and stay freely reorderable. Accordant
-    // searches the interleavings itself — gating each step on its predecessors
-    // and interning state-graph nodes — which replaces the hand-rolled DFS and
-    // its deliberately-imperfect profile hash this used to carry.
-    //
-    // Accordant's search has no budget of its own, so sim/checker.go's honesty
-    // rule stays here: run it on a worker and report UNKNOWN when the budget
-    // expires, never a failure. An abandoned search keeps running to completion
-    // (it cannot be cancelled) but writes nothing this code reads.
     private static (bool ok, bool conclusive) CheckLinearizable(
         Spec<ServerState> spec, List<HistOp> hist, StateProfile initial, TimeSpan budget)
     {
@@ -162,9 +130,6 @@ public static class HistoryTests
             .Select(h => (spec.GetOperation(h.OpName), h.Req, h.Resp))
             .ToList();
 
-        // Disjoint intervals are ordered; overlapping ones are not. Call/return
-        // stamps come from one Interlocked counter, so every stamp is distinct
-        // and the relation is a strict partial order (acyclic by construction).
         var edges = new List<(int before, int after)>();
         for (int i = 0; i < hist.Count; i++)
             for (int j = 0; j < hist.Count; j++)

@@ -14,16 +14,6 @@ public partial class PromiseState
     public bool ExternalTag { get; set; }
     public bool TimerTag { get; set; }
 
-    /// <summary>
-    /// Awaitable from outside its own call graph — what gates register_callback,
-    /// register_listener and suspend, and what makes a timeout DURABLE rather
-    /// than a read-time projection.
-    ///
-    /// THREE disjuncts, per spec/02-abstract/state.lean:92
-    /// (`external = externalTag || targeted || isTimer`). The timer case is the
-    /// one that is easy to lose: a timer promise carries neither of the other
-    /// two tags, and awaiting one is the whole point of having it.
-    /// </summary>
     public bool IsExternal => HasTarget || ExternalTag || TimerTag;
     public long CreatedAt { get; set; }
     public long? SettledAt { get; set; }
@@ -45,8 +35,7 @@ public partial class PromiseState
             return this;
 
         var projected = (PromiseState)Clone();
-        // A timer's deadline is its SUCCESS: it resolves. Only a non-timer's
-        // deadline rejects it (state.lean:111).
+
         projected.State = TimerTag ? "resolved" : "rejected_timedout";
         projected.SettledAt = TimeoutAt;
         return projected;
@@ -63,24 +52,8 @@ public partial class TaskState
     public long? Ttl { get; set; }
     public string? Pid { get; set; }
 
-    /// <summary>
-    /// When this task is next due for dispatch — spec `TaskObject.retryTimeoutAt`.
-    /// Armed whenever the task becomes pending (born with a target, released,
-    /// reclaimed from an expired lease, resumed) and cleared whenever it stops
-    /// being pending. R6 re-arms it a dial's width into the future each time it
-    /// redispatches.
-    ///
-    /// Null means "not armed", which for a pending task the machine never
-    /// allows — that pairing is the invariant
-    /// `well_formed_task_pending_iff_has_retry_timeout_at`.
-    /// </summary>
     public long? RetryTimeoutAt { get; set; }
 
-    /// <summary>
-    /// When the lease runs out — spec/02-abstract `TaskObject.leaseTimeoutAt`.
-    /// The spec stores it; this model derives it from the acquire instant and
-    /// the ttl, which is the same instant by a different route.
-    /// </summary>
     public long LeaseTimeoutAt => AcquiredAt + (Ttl ?? 0);
 
     public void Fulfill()

@@ -2,15 +2,6 @@ using Microsoft.Accordant;
 
 namespace ResonateConformance;
 
-/// <summary>
-/// Concurrency conformance. Two complementary approaches:
-///  (A) HAND-CRAFTED RACES: fire two ops concurrently at the live server, collect
-///      both observed responses, and ask spec.AllowsConcurrent whether SOME
-///      sequential ordering explains both. This is where the version fence earns
-///      its keep — exactly one acquire wins (200), the other loses (409), and the
-///      model must admit that interleaving.
-///  (B) GENERATED: GenerateConcurrentTests + RunTests explore interleavings.
-/// </summary>
 public static class ConcurrencyTests
 {
     public static async Task<int> Run(Harness harness)
@@ -22,15 +13,12 @@ public static class ConcurrencyTests
         return rc;
     }
 
-    // ---- (A) hand-crafted races via spec.AllowsConcurrent ----------------------
     private static async Task<int> HandCraftedRaces(Harness harness)
     {
         Console.WriteLine("--- hand-crafted races (spec.AllowsConcurrent) ---");
         var spec = harness.Spec;
         int fails = 0;
 
-        // RACE 1: two workers acquire the SAME freshly-created task at v0.
-        // Exactly one must win (200 acquired v1), the other must lose (409).
         {
             harness.Now = 1_000_000;
             await harness.Client.DebugReset();
@@ -41,7 +29,6 @@ public static class ConcurrencyTests
             var reqA = new AcquireTask("race1", 0, "wA");
             var reqB = new AcquireTask("race1", 0, "wB");
 
-            // Fire both concurrently.
             var tA = acqOp.ExecuteAsync(harness.NewContext(), reqA);
             var tB = acqOp.ExecuteAsync(harness.NewContext(), reqB);
             await Task.WhenAll(tA, tB);
@@ -73,13 +60,10 @@ public static class ConcurrencyTests
             var (ok, msg, _) = spec.AllowsConcurrent(profile, calls);
             Report("race1: concurrent double-acquire is linearizable", ok, msg, ref fails);
 
-            // Sanity: exactly one winner.
             var oneWinner = (sA == 200) ^ (sB == 200);
             Report("race1: exactly one acquire won (one-winner)", oneWinner, "both or neither won", ref fails);
         }
 
-        // RACE 2: acquire vs get. Whatever order, get sees pending or acquired-promise
-        // (promise stays pending through acquire), acquire sees 200. Always linearizable.
         {
             harness.Now = 1_000_000;
             await harness.Client.DebugReset();
@@ -123,7 +107,6 @@ public static class ConcurrencyTests
         return fails == 0 ? 0 : 1;
     }
 
-    // ---- (B) generated concurrent cases ---------------------------------------
     private static async Task<int> Generated(Harness harness)
     {
         Console.WriteLine("\n--- generated concurrent cases (GenerateConcurrentTests + RunTests) ---");
@@ -134,7 +117,6 @@ public static class ConcurrencyTests
         var acquire = spec.GetOperation<AcquireTask, Response>("AcquireTask");
         var get = spec.GetOperation<GetPromise, Response>("GetPromise");
 
-        // A small pool: create a task, then two racing acquires + a read.
         var inputs = new InputSet
         {
             create.With(new CreatePromise("tk", far, "work", WithTarget: true), "create tk +target"),
@@ -167,8 +149,7 @@ public static class ConcurrencyTests
 
     private static StateProfile MakeProfile(ServerState s)
     {
-        // Build a single-state StateProfile by validating an empty concurrent step
-        // set from the given state (SystemChecker returns a profile wrapping it).
+
         return SystemChecker.Validate(new List<IList<IStepFunction>>(), s, null);
     }
 
