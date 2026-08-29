@@ -82,7 +82,7 @@ public static class RaceRepros
                 if (!gok) { fails++; Console.WriteLine($"  ❌ iter {i}: poll rejected: {gmsg}"); break; }
                 profile = gnext;
                 if (profile.StatesAndStepFunctions.All(ssf =>
-                        !((ServerState)ssf.State).Tasks.TryGetValue(T, out var t) || t.Status != "suspended"))
+                        !((ServerState)ssf.State).Tasks.TryGetValue(T, out var t) || t.State != "suspended"))
                 {
                     landed = true;
                     break;

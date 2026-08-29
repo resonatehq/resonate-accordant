@@ -188,8 +188,80 @@ public sealed class Invariants
             else Console.WriteLine("  ✅ legal history produced no violations");
         }
 
+        fails += RetryClockSelfTest();
+
         Console.WriteLine($"\n  self-test: {(fails == 0 ? "all rules fire correctly ✅" : $"{fails} FAILED ❌")}");
         return fails == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The dispatch clock is invisible on the wire, so no run against a server
+    /// can check it. What CAN be checked is the machine's own invariant —
+    /// `well_formed_task_pending_iff_has_retry_timeout_at`: a task is pending
+    /// exactly when its dispatch is armed. Drive the model through every
+    /// transition that moves a task and assert the pairing after each.
+    /// </summary>
+    private static int RetryClockSelfTest()
+    {
+        Console.WriteLine("\n  --- dispatch clock (model-only: nothing observes it) ---");
+        int fails = 0;
+        const long now = 1_000_000, far = 9_000_000_000_000;
+
+        int Pairing(ServerState s, string label)
+        {
+            foreach (var (id, t) in s.Tasks)
+            {
+                var armed = t.RetryTimeoutAt is not null;
+                if (t.State == "pending" != armed)
+                {
+                    Console.WriteLine($"  ❌ {label}: task {id} is {t.State} with dispatch {(armed ? "armed" : "unarmed")}");
+                    return 1;
+                }
+            }
+            Console.WriteLine($"  ✅ {label}");
+            return 0;
+        }
+
+        ServerState Step<TReq>(ServerState s, string op, TReq req)
+        {
+            var outcome = ResonateSpec.Build().GetOperation<TReq, Response>(op).Apply(req, s);
+            var next = outcome.PossibleOutcomes[0].NextStateGenerator(null!, s).First();
+            return (ServerState)next;
+        }
+
+        var st = new ServerState { Now = now };
+        st = Step(st, "CreatePromise", new CreatePromise("r", far, "w", WithTarget: true));
+        fails += Pairing(st, "born with a target → pending, dispatch armed");
+        st = Step(st, "AcquireTask", new AcquireTask("r", 0, "w1"));
+        fails += Pairing(st, "acquired → the lease takes over, dispatch cleared");
+        st = Step(st, "ReleaseTask", new ReleaseTask("r", 1));
+        fails += Pairing(st, "released → pending again, dispatch re-armed");
+        st = Step(st, "AcquireTask", new AcquireTask("r", 1, "w1"));
+        st = Step(st, "SuspendTask", new SuspendTask("r", 2, "a"));
+        fails += Pairing(st, "suspended → parked, neither clock runs");
+
+        // R5 and R6. Both are step bodies the clock arms rather than deterministic
+        // outcomes, so call the same methods the trigger and the fold call —
+        // reaching them through Apply would only test that Apply skips them.
+        var leased = new ServerState { Now = now };
+        leased = Step(leased, "CreatePromise", new CreatePromise("L", far, "w", WithTarget: true));
+        leased = Step(leased, "AcquireTask", new AcquireTask("L", 0, "w1", 5_000));
+        leased.Now = now + 6_000;
+        ResonateSpec.ReclaimLease(leased, "L");
+        var lt = leased.Tasks["L"];
+        if (lt.State == "pending" && lt.RetryTimeoutAt is not null)
+            Console.WriteLine("  ✅ lease expiry → pending, dispatch armed");
+        else { Console.WriteLine($"  ❌ lease expiry left {lt.State} / {lt.RetryTimeoutAt?.ToString() ?? "unarmed"}"); fails++; }
+
+        var due = leased.Tasks["L"].RetryTimeoutAt!.Value;
+        leased.Now = due + 1;
+        ResonateSpec.FoldRetryTimeouts(leased);
+        var after = leased.Tasks["L"].RetryTimeoutAt;
+        if (after > due)
+            Console.WriteLine($"  ✅ dispatch due → re-armed a dial out ({due} → {after})");
+        else { Console.WriteLine($"  ❌ dispatch not re-armed: still {after?.ToString() ?? "unarmed"}"); fails++; }
+
+        return fails;
     }
 
     private static int Expect(string label, Invariants inv, string rule)

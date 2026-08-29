@@ -7,12 +7,12 @@ public static partial class ResonateSpec
     private const long TaskCreateTtl = 3_600_000;
 
     private static bool IsTimedOut(PromiseState p, long now) =>
-        p.Status == "pending" && now >= p.TimeoutAt;
+        p.State == "pending" && now >= p.TimeoutAt;
 
     private static (string State, string? Value, long? SettledAt) Project(PromiseState p, long now)
     {
         var v = p.Project(now);
-        return (v.Status, v.Status == "pending" ? null : v.Value, v.SettledAt);
+        return (v.State, v.State == "pending" ? null : v.Value, v.SettledAt);
     }
 
     private static void SettleAndFulfillTask(ServerState s, string id, string state, string? data, long settledAt) =>

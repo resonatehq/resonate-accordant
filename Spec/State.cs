@@ -5,7 +5,7 @@ namespace ResonateConformance;
 [State]
 public partial class PromiseState
 {
-    public string Status { get; set; } = "pending";
+    public string State { get; set; } = "pending";
     public string? Value { get; set; }
     public long TimeoutAt { get; set; }
 
@@ -29,7 +29,7 @@ public partial class PromiseState
     public long? SettledAt { get; set; }
 
     public bool IsTerminal =>
-        Status is "resolved" or "rejected" or "rejected_canceled" or "rejected_timedout";
+        State is "resolved" or "rejected" or "rejected_canceled" or "rejected_timedout";
 
     public List<string> Callbacks { get; set; } = new();
 
@@ -41,13 +41,13 @@ public partial class PromiseState
 
     public PromiseState Project(long now)
     {
-        if (!(Status == "pending" && TimeoutAt <= now))
+        if (!(State == "pending" && TimeoutAt <= now))
             return this;
 
         var projected = (PromiseState)Clone();
         // A timer's deadline is its SUCCESS: it resolves. Only a non-timer's
         // deadline rejects it (state.lean:111).
-        projected.Status = TimerTag ? "resolved" : "rejected_timedout";
+        projected.State = TimerTag ? "resolved" : "rejected_timedout";
         projected.SettledAt = TimeoutAt;
         return projected;
     }
@@ -56,12 +56,25 @@ public partial class PromiseState
 [State]
 public partial class TaskState
 {
-    public string Status { get; set; } = "pending";
+    public string State { get; set; } = "pending";
     public int Version { get; set; }
 
     public long AcquiredAt { get; set; }
     public long? Ttl { get; set; }
     public string? Pid { get; set; }
+
+    /// <summary>
+    /// When this task is next due for dispatch — spec `TaskObject.retryTimeoutAt`.
+    /// Armed whenever the task becomes pending (born with a target, released,
+    /// reclaimed from an expired lease, resumed) and cleared whenever it stops
+    /// being pending. R6 re-arms it a dial's width into the future each time it
+    /// redispatches.
+    ///
+    /// Null means "not armed", which for a pending task the machine never
+    /// allows — that pairing is the invariant
+    /// `well_formed_task_pending_iff_has_retry_timeout_at`.
+    /// </summary>
+    public long? RetryTimeoutAt { get; set; }
 
     /// <summary>
     /// When the lease runs out — spec/02-abstract `TaskObject.leaseTimeoutAt`.
@@ -72,15 +85,16 @@ public partial class TaskState
 
     public void Fulfill()
     {
-        Status = "fulfilled";
+        State = "fulfilled";
         Pid = null;
         Ttl = null;
+        RetryTimeoutAt = null;
     }
 
-    public (string Status, int Version, string? Pid, long? Ttl) View(PromiseState projected) =>
-        projected.Status != "pending" && Status != "fulfilled"
+    public (string State, int Version, string? Pid, long? Ttl) View(PromiseState projected) =>
+        projected.State != "pending" && State != "fulfilled"
             ? ("fulfilled", Version, null, null)
-            : (Status, Version, Pid, Ttl);
+            : (State, Version, Pid, Ttl);
 }
 
 [State]
@@ -103,11 +117,11 @@ public partial class ServerState
     public void SetSettled(string id, string state, string? value, long settledAt)
     {
         var p = Promises[id];
-        p.Status = state;
+        p.State = state;
         p.Value = value;
         p.SettledAt = settledAt;
 
-        if (Tasks.TryGetValue(id, out var t) && t.Status != "fulfilled")
+        if (Tasks.TryGetValue(id, out var t) && t.State != "fulfilled")
             t.Fulfill();
     }
 }

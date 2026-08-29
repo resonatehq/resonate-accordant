@@ -51,7 +51,7 @@ public static partial class ResonateSpec
         {
             var fresh = new PromiseState
             {
-                Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
+                State = "pending", Value = null, TimeoutAt = req.TimeoutAt,
                 ParamData = req.Data, CreatedAt = now,
                 HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
             };
@@ -62,12 +62,12 @@ public static partial class ResonateSpec
                 {
                     s.Promises[req.Id] = new PromiseState
                     {
-                        Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
+                        State = "pending", Value = null, TimeoutAt = req.TimeoutAt,
                         ParamData = req.Data, CreatedAt = s.Now,
                         HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
                     };
                     if (req.WithTarget)
-                        s.Tasks[req.Id] = new TaskState { Status = "pending", Version = 0 };
+                        s.Tasks[req.Id] = new TaskState { State = "pending", Version = 0, RetryTimeoutAt = s.Now };
                 });
         }
 
@@ -76,7 +76,7 @@ public static partial class ResonateSpec
         var bornState = req.Timer ? "resolved" : "rejected_timedout";
         var born = new PromiseState
         {
-            Status = bornState, Value = null, TimeoutAt = req.TimeoutAt,
+            State = bornState, Value = null, TimeoutAt = req.TimeoutAt,
             ParamData = req.Data, CreatedAt = req.TimeoutAt, SettledAt = req.TimeoutAt,
             HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
         };
@@ -87,12 +87,12 @@ public static partial class ResonateSpec
             {
                 s.Promises[req.Id] = new PromiseState
                 {
-                    Status = bornState, Value = null, TimeoutAt = req.TimeoutAt,
+                    State = bornState, Value = null, TimeoutAt = req.TimeoutAt,
                     ParamData = req.Data, CreatedAt = req.TimeoutAt, SettledAt = req.TimeoutAt,
                     HasTarget = req.WithTarget, ExternalTag = req.External, TimerTag = req.Timer,
                 };
                 if (req.WithTarget)
-                    s.Tasks[req.Id] = new TaskState { Status = "fulfilled", Version = 0 };
+                    s.Tasks[req.Id] = new TaskState { State = "fulfilled", Version = 0 };
             });
     }
 
@@ -129,7 +129,7 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (p.Status == "pending" && p.TimeoutAt > now)
+        if (p.State == "pending" && p.TimeoutAt > now)
         {
             var outcome = Expect.That<Response>(
                     r => r.Status == 200 && PromiseMatches(r, req.Id, p, req.State, req.Data, now),
@@ -187,12 +187,12 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (awaited.Status == "pending" && awaited.TimeoutAt > now)
+        if (awaited.State == "pending" && awaited.TimeoutAt > now)
         {
             var outcome = Expect.That<Response>(
                 r => r.Status == 200 && PromiseMatches(r, req.Awaited, awaited, "pending", null, null),
                 "P-04: awaited pending → 200 echo");
-            if (awaiter.Status != "pending" || awaiter.TimeoutAt <= now)
+            if (awaiter.State != "pending" || awaiter.TimeoutAt <= now)
                 return outcome.SameState();
             return outcome.ThenState<ServerState>(s => s.Promises[req.Awaited].AddCallback(req.Awaiter));
         }
@@ -229,7 +229,7 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (awaited.Status == "pending" && awaited.TimeoutAt > now)
+        if (awaited.State == "pending" && awaited.TimeoutAt > now)
         {
             return Expect.That<Response>(
                     r => r.Status == 200 && PromiseMatches(r, req.Awaited, awaited, "pending", null, null),
@@ -249,9 +249,9 @@ public static partial class ResonateSpec
             .ThenState<ServerState>(s =>
             {
                 if (s.Tasks.TryGetValue(req.Id, out var t)
-                    && t.Status == "acquired" && t.Version == req.Version && t.Pid == req.Pid
+                    && t.State == "acquired" && t.Version == req.Version && t.Pid == req.Pid
                     && s.Promises.TryGetValue(req.Id, out var p)
-                    && p.Status == "pending" && p.TimeoutAt > s.Now)
+                    && p.State == "pending" && p.TimeoutAt > s.Now)
                     t.AcquiredAt = s.Now;
             });
 
@@ -292,13 +292,13 @@ public static partial class ResonateSpec
 
         var tp = state.Promises[req.Id];
 
-        if (task.Status != "acquired")
+        if (task.State != "acquired")
         {
             return Expect.That<Response>(r => r.Status == 409, "T-06: not acquired → 409")
                 .SameState();
         }
 
-        if (tp.Status != "pending" || tp.TimeoutAt <= now)
+        if (tp.State != "pending" || tp.TimeoutAt <= now)
         {
             return Expect.That<Response>(r => r.Status == 409, "T-06: own promise not pending-and-live → 409")
                 .SameState();
@@ -323,7 +323,7 @@ public static partial class ResonateSpec
                 return Expect.That<Response>(r => r.Status == 422, $"T-06: awaited {a} is INTERNAL → 422 (not awaitable)")
                     .SameState();
             }
-            if (pa.Status != "pending" || pa.TimeoutAt <= now)
+            if (pa.State != "pending" || pa.TimeoutAt <= now)
                 settled = true;
         }
 
@@ -337,7 +337,8 @@ public static partial class ResonateSpec
             .ThenState<ServerState>(s =>
             {
                 var t = s.Tasks[req.Id];
-                t.Status = "suspended"; t.Pid = null; t.Ttl = null;
+                t.State = "suspended"; t.Pid = null; t.Ttl = null;
+                t.RetryTimeoutAt = null;
                 foreach (var a in ids)
                     s.Promises[a].AddCallback(req.Id);
             });
@@ -363,7 +364,7 @@ public static partial class ResonateSpec
 
             var existing = state.Tasks[req.Id];
 
-            if (existing.Status == "fulfilled")
+            if (existing.State == "fulfilled")
             {
                 return Expect.That<Response>(
                         r => r.Status == 200
@@ -372,7 +373,7 @@ public static partial class ResonateSpec
                     .SameState();
             }
 
-            if (existing.Status == "pending")
+            if (existing.State == "pending")
             {
                 var claimedVersion = existing.Version + 1;
                 return Expect.That<Response>(
@@ -382,8 +383,9 @@ public static partial class ResonateSpec
                     .ThenState<ServerState>(s =>
                     {
                         var t = s.Tasks[req.Id];
-                        t.Status = "acquired"; t.Version = claimedVersion;
+                        t.State = "acquired"; t.Version = claimedVersion;
                         t.AcquiredAt = s.Now; t.Ttl = TaskCreateTtl; t.Pid = "worker-self";
+                        t.RetryTimeoutAt = null;
                     });
             }
 
@@ -393,7 +395,7 @@ public static partial class ResonateSpec
 
         var fresh = new PromiseState
         {
-            Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
+            State = "pending", Value = null, TimeoutAt = req.TimeoutAt,
             ParamData = req.Data, HasTarget = true, CreatedAt = now,
         };
         return Expect.That<Response>(
@@ -405,10 +407,10 @@ public static partial class ResonateSpec
             {
                 s.Promises[req.Id] = new PromiseState
                 {
-                    Status = "pending", Value = null, TimeoutAt = req.TimeoutAt,
+                    State = "pending", Value = null, TimeoutAt = req.TimeoutAt,
                     ParamData = req.Data, HasTarget = true, CreatedAt = s.Now,
                 };
-                s.Tasks[req.Id] = new TaskState { Status = "acquired", Version = 1, AcquiredAt = s.Now, Ttl = TaskCreateTtl, Pid = "worker-self" };
+                s.Tasks[req.Id] = new TaskState { State = "acquired", Version = 1, AcquiredAt = s.Now, Ttl = TaskCreateTtl, Pid = "worker-self" };
             });
     }
 
@@ -424,9 +426,9 @@ public static partial class ResonateSpec
 
         var p = state.Promises[req.Id];
 
-        if (p.Status == "pending" && p.TimeoutAt > now)
+        if (p.State == "pending" && p.TimeoutAt > now)
         {
-            var st = task.Status;
+            var st = task.State;
             var pid = task.Pid;
             var ttl = task.Ttl;
             var version = task.Version;
@@ -451,14 +453,14 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (task.Status != "pending")
+        if (task.State != "pending")
         {
             return Expect.That<Response>(r => r.Status == 409, "T-03: not pending → 409")
                 .SameState();
         }
 
         var p = state.Promises[req.Id];
-        if (p.Status != "pending" || p.TimeoutAt <= state.Now)
+        if (p.State != "pending" || p.TimeoutAt <= state.Now)
         {
             return Expect.That<Response>(r => r.Status == 409, "T-03: promise not pending-and-live → 409")
                 .SameState();
@@ -478,8 +480,9 @@ public static partial class ResonateSpec
             .ThenState<ServerState>(s =>
             {
                 var t = s.Tasks[req.Id];
-                t.Status = "acquired"; t.Version = newVersion;
+                t.State = "acquired"; t.Version = newVersion;
                 t.AcquiredAt = s.Now; t.Ttl = req.Ttl; t.Pid = req.Pid;
+                t.RetryTimeoutAt = null;
             });
     }
 
@@ -491,14 +494,14 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (task.Status != "acquired")
+        if (task.State != "acquired")
         {
             return Expect.That<Response>(r => r.Status == 409, "T-08: not acquired → 409")
                 .SameState();
         }
 
         var p = state.Promises[req.Id];
-        if (p.Status != "pending" || p.TimeoutAt <= state.Now)
+        if (p.State != "pending" || p.TimeoutAt <= state.Now)
         {
             return Expect.That<Response>(r => r.Status == 409, "T-08: promise not pending-and-live → 409")
                 .SameState();
@@ -514,7 +517,8 @@ public static partial class ResonateSpec
             .ThenState<ServerState>(s =>
             {
                 var t = s.Tasks[req.Id];
-                t.Status = "pending"; t.Pid = null; t.Ttl = null;
+                t.State = "pending"; t.Pid = null; t.Ttl = null;
+                t.RetryTimeoutAt = s.Now;
             });
     }
 
@@ -534,14 +538,14 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (task.Status != "acquired")
+        if (task.State != "acquired")
         {
             return Expect.That<Response>(r => r.Status == 409, "T-07: not acquired → 409 (no settle)")
                 .SameState();
         }
 
         var p = state.Promises[req.Id];
-        if (p.Status != "pending" || p.TimeoutAt <= now)
+        if (p.State != "pending" || p.TimeoutAt <= now)
         {
             return Expect.That<Response>(r => r.Status == 409, "T-07: promise not pending-and-live → 409 (no settle)")
                 .SameState();
@@ -576,14 +580,14 @@ public static partial class ResonateSpec
                 .SameState();
         }
 
-        if (task.Status != "acquired")
+        if (task.State != "acquired")
         {
             return Expect.That<Response>(r => r.Status == 409, "T-04: not acquired → 409 (no side effect)")
                 .SameState();
         }
 
         var own = state.Promises[req.Id];
-        if (own.Status != "pending" || own.TimeoutAt <= state.Now)
+        if (own.State != "pending" || own.TimeoutAt <= state.Now)
         {
             return Expect.That<Response>(r => r.Status == 409, "T-04: promise not pending-and-live → 409 (no side effect)")
                 .SameState();
@@ -621,11 +625,12 @@ public static partial class ResonateSpec
                 foreach (var id in claimable)
                 {
                     var t = s.Tasks[id];
-                    t.Status = "acquired";
+                    t.State = "acquired";
                     t.Version += 1;
                     t.Pid = req.Pid;
                     t.Ttl = req.Ttl;
                     t.AcquiredAt = s.Now;
+                    t.RetryTimeoutAt = null;
 
                     foreach (var p in s.Promises.Values) p.Callbacks.Remove(id);
                 }
@@ -640,9 +645,9 @@ public static partial class ResonateSpec
                 if (!state.Promises.TryGetValue(id, out var p)) return false;
                 if (!p.HasTarget) return false;
                 if (p.Project(now).IsTerminal) return false;          // own promise must be live
-                if (t.Status == "pending") return true;
-                if (t.Status == "acquired" && now >= t.LeaseTimeoutAt) return true;  // R5
-                if (t.Status != "suspended") return false;
+                if (t.State == "pending") return true;
+                if (t.State == "acquired" && now >= t.LeaseTimeoutAt) return true;  // R5
+                if (t.State != "suspended") return false;
                 return state.Promises.Any(kv2 =>
                     kv2.Value.Callbacks.Contains(id) && kv2.Value.Project(now).IsTerminal);
             })

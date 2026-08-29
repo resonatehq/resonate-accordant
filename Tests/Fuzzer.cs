@@ -191,7 +191,7 @@ public sealed class Fuzzer
         var getOp = _spec.GetOperation("GetTask");
         var ids = _profile.StatesAndStepFunctions
             .SelectMany(ssf => ((ServerState)ssf.State).Tasks
-                .Where(kv => kv.Value.Status == "suspended").Select(kv => kv.Key))
+                .Where(kv => kv.Value.State == "suspended").Select(kv => kv.Key))
             .Distinct().OrderBy(k => k, StringComparer.Ordinal).Take(2).ToList();
 
         foreach (var tid in ids)
@@ -228,7 +228,7 @@ public sealed class Fuzzer
                 break;
             case AdvanceClock a when before is not null:
                 foreach (var kv in before.Promises)
-                    if (kv.Value.Status == "pending" && a.To >= kv.Value.TimeoutAt
+                    if (kv.Value.State == "pending" && a.To >= kv.Value.TimeoutAt
                         && kv.Value.Callbacks.Count > 0)
                     {
                         _msTimeoutsWithAwaiters++;
@@ -327,7 +327,7 @@ public sealed class Fuzzer
         if (roll < 62)
         {
             // Guided: prefer settling a promise that HAS awaiters — the cascade.
-            var id = TryGuidedPromise(p => p.Status == "pending", preferAwaited: true) ?? AnyPromise();
+            var id = TryGuidedPromise(p => p.State == "pending", preferAwaited: true) ?? AnyPromise();
             // Mix all valid terminal states + occasionally a bogus one (→ 400).
             var st = _rng.Next(10) switch
             {
@@ -342,7 +342,7 @@ public sealed class Fuzzer
         if (roll < 74)
         {
             // Guided: a PENDING task at its CURRENT version — the fence satisfied.
-            if (TryGuidedTask(t => t.Status == "pending") is var (gid, gv) && gid is not null)
+            if (TryGuidedTask(t => t.State == "pending") is var (gid, gv) && gid is not null)
                 return (_spec.GetOperation("AcquireTask"),
                     new AcquireTask(gid, gv, "w" + _rng.Next(3)), $"acquire {gid} v{gv}");
             var id = AnyTask();
@@ -352,7 +352,7 @@ public sealed class Fuzzer
         }
         if (roll < 82)
         {
-            if (TryGuidedTask(t => t.Status == "acquired") is var (gid, gv) && gid is not null)
+            if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
                 return (_spec.GetOperation("FulfillTask"),
                     new FulfillTask(gid, gv, "resolved", "done"), $"fulfill {gid} v{gv}");
             var id = AnyTask();
@@ -362,7 +362,7 @@ public sealed class Fuzzer
         }
         if (roll < 88)
         {
-            if (TryGuidedTask(t => t.Status == "acquired") is var (gid, gv) && gid is not null)
+            if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
                 return (_spec.GetOperation("ReleaseTask"),
                     new ReleaseTask(gid, gv), $"release {gid} v{gv}");
             var id = AnyTask();
@@ -382,7 +382,7 @@ public sealed class Fuzzer
             // fence: run an inner action on ANOTHER promise (target != task id).
             // The CREATE arm mints a fresh child (or dedups an existing id);
             // the SETTLE arm settles one.
-            if (TryGuidedTask(t => t.Status == "acquired") is var (gid, gv) && gid is not null)
+            if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
             {
                 if (_rng.NextDouble() < 0.4)
                 {
@@ -392,7 +392,7 @@ public sealed class Fuzzer
                             new FenceTask(gid, gv, Create: new CreatePromise(cid, NextDeadline(), "kid")),
                             $"fence {gid} v{gv} ⇒ create {cid}");
                 }
-                var gchild = TryGuidedPromise(p => p.Status == "pending") ?? AnyPromise();
+                var gchild = TryGuidedPromise(p => p.State == "pending") ?? AnyPromise();
                 if (gchild != gid)
                     return (_spec.GetOperation("FenceTask"),
                         new FenceTask(gid, gv, Settle: new SettlePromise(gchild, "resolved", "fenced")),
@@ -411,14 +411,14 @@ public sealed class Fuzzer
         {
             // Guided: an ACQUIRED task at its version, awaiting a PENDING
             // EXTERNAL promise that isn't itself — the cascade's first half.
-            if (TryGuidedTask(t => t.Status == "acquired") is var (gid, gv) && gid is not null)
+            if (TryGuidedTask(t => t.State == "acquired") is var (gid, gv) && gid is not null)
             {
-                var gawaited = TryGuidedPromise(p => p.Status == "pending" && p.IsExternal) ?? AnyPromise();
+                var gawaited = TryGuidedPromise(p => p.State == "pending" && p.IsExternal) ?? AnyPromise();
                 if (gawaited != gid)
                 {
                     // Sometimes wait-any over TWO distinct externals.
                     if (_rng.NextDouble() < 0.25
-                        && TryGuidedPromise(p => p.Status == "pending" && p.IsExternal) is { } second
+                        && TryGuidedPromise(p => p.State == "pending" && p.IsExternal) is { } second
                         && second != gawaited && second != gid)
                         gawaited = $"{gawaited},{second}";
                     return (_spec.GetOperation("SuspendTask"),

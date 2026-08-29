@@ -58,11 +58,11 @@ public static class ConcurrencyTests
                 {
                     ["race1"] = new PromiseState
                     {
-                        Status = "pending", TimeoutAt = far,
+                        State = "pending", TimeoutAt = far,
                         ParamData = "w", HasTarget = true, CreatedAt = harness.Now,
                     },
                 },
-                Tasks = { ["race1"] = new TaskState { Status = "pending", Version = 0 } },
+                Tasks = { ["race1"] = new TaskState { State = "pending", Version = 0 } },
             });
 
             var calls = new List<(IOperation, object, object)>
@@ -104,11 +104,11 @@ public static class ConcurrencyTests
                 {
                     ["race2"] = new PromiseState
                     {
-                        Status = "pending", TimeoutAt = far,
+                        State = "pending", TimeoutAt = far,
                         ParamData = "w", HasTarget = true, CreatedAt = harness.Now,
                     },
                 },
-                Tasks = { ["race2"] = new TaskState { Status = "pending", Version = 0 } },
+                Tasks = { ["race2"] = new TaskState { State = "pending", Version = 0 } },
             });
             var calls = new List<(IOperation, object, object)>
             {

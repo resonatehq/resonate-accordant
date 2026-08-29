@@ -140,7 +140,7 @@ public static class ExampleTraces
         await checker.DrainMessages();
         await checker.Step(new SettlePromise("ex:awaited", "resolved", "v"), "settle awaited → arms resume of root");
         await checker.PollLiveness(new GetTask("ex:root"),
-            s => !s.Tasks.TryGetValue("ex:root", out var t) || t.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:root", out var t) || t.State != "suspended",
             "resume of root lands (liveness)");
         // The resume's execute is a wake-up hint carrying root's CURRENT
         // version (v1 — resume never bumps); the settle also unblocks the
@@ -162,7 +162,7 @@ public static class ExampleTraces
         await checker.DrainMessages();
         await checker.Step(new SettlePromise("ex:cbA", "resolved", "a!"), "settle cbA → arms resume of cbT via the P-04 callback");
         await checker.PollLiveness(new GetTask("ex:cbT"),
-            s => !s.Tasks.TryGetValue("ex:cbT", out var t) || t.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:cbT", out var t) || t.State != "suspended",
             "P-04 callback resume of cbT lands (liveness)");
         await checker.ExpectMessages("egress: settle cbA emitted execute cbT v1 (stored P-04 callback)",
             ("execute", "ex:cbT", 1));
@@ -186,7 +186,7 @@ public static class ExampleTraces
         await checker.Step(new GetTask("ex:root2"), "task.get root2 → suspended v1");
         await checker.Step(new SettlePromise("ex:wB", "resolved", "b!"), "settle wB → resumes root2 (any one of the set)");
         await checker.PollLiveness(new GetTask("ex:root2"),
-            s => !s.Tasks.TryGetValue("ex:root2", out var t) || t.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:root2", out var t) || t.State != "suspended",
             "wait-any resume of root2 lands (liveness)");
         await checker.Step(new AcquireTask("ex:root2", 1, "worker-1"), "re-acquire root2 v1 → v2");
         await checker.Step(new SuspendTask("ex:root2", 2, "ex:wA,ex:wB"), "suspend awaiting {pending wA, SETTLED wB} → 300 (any settled wins)");
@@ -220,7 +220,7 @@ public static class ExampleTraces
         await checker.Step(new AdvanceClock(now + 21_000), "tick past late's deadline → timeout fires");
         await checker.Step(new GetPromise("ex:late"), "get late → rejected_timedout (durable)");
         await checker.PollLiveness(new GetTask("ex:root3"),
-            s => !s.Tasks.TryGetValue("ex:root3", out var t3) || t3.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:root3", out var t3) || t3.State != "suspended",
             "timeout resumes root3 (liveness)");
         await checker.Step(new AcquireTask("ex:root3", 1, "worker-1"), "re-acquire root3 v1 after timeout-resume → v2");
 
@@ -247,7 +247,7 @@ public static class ExampleTraces
         await checker.Step(new AdvanceClock(now + 31_000), "tick past appr's deadline → external timeout fires");
         await checker.Step(new GetPromise("ex:appr"), "get appr → rejected_timedout (durable, settledAt = deadline)");
         await checker.PollLiveness(new GetTask("ex:root4"),
-            s => !s.Tasks.TryGetValue("ex:root4", out var t4) || t4.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:root4", out var t4) || t4.State != "suspended",
             "appr's timeout resumes root4 (liveness)");
         await checker.Step(new AcquireTask("ex:root4", 1, "worker-1"), "re-acquire root4 v1 → acquired v2");
 
@@ -269,7 +269,7 @@ public static class ExampleTraces
         await checker.Step(new AdvanceClock(now + 41_000), "tick past the timer's deadline");
         await checker.Step(new GetPromise("ex:tmr"), "get timer → resolved (durable, settledAt = deadline)");
         await checker.PollLiveness(new GetTask("ex:root5"),
-            s => !s.Tasks.TryGetValue("ex:root5", out var t5) || t5.Status != "suspended",
+            s => !s.Tasks.TryGetValue("ex:root5", out var t5) || t5.State != "suspended",
             "the timer's deadline resumes root5 (liveness)");
         // Born past its own deadline: the same rule, applied at birth.
         await checker.Step(new CreatePromise("ex:tmrDead", now - 1_000, "late", Timer: true),
