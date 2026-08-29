@@ -63,7 +63,12 @@ public partial class TaskState
     public long? Ttl { get; set; }
     public string? Pid { get; set; }
 
-    public long LeaseExpiry => AcquiredAt + (Ttl ?? 0);
+    /// <summary>
+    /// When the lease runs out — spec/02-abstract `TaskObject.leaseTimeoutAt`.
+    /// The spec stores it; this model derives it from the acquire instant and
+    /// the ttl, which is the same instant by a different route.
+    /// </summary>
+    public long LeaseTimeoutAt => AcquiredAt + (Ttl ?? 0);
 
     public void Fulfill()
     {

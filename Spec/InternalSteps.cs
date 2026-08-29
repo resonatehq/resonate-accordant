@@ -30,11 +30,11 @@ public static partial class ResonateSpec
             : [];
 
     private static bool LeaseReclaimable(ServerState s, string taskId) =>
-        s.Tasks.TryGetValue(taskId, out var t) && t.Status == "acquired" && s.Now >= t.LeaseExpiry;
+        s.Tasks.TryGetValue(taskId, out var t) && t.Status == "acquired" && s.Now >= t.LeaseTimeoutAt;
 
     private static IStepFunction[] LeaseTriggers(ServerState state, long now) =>
         state.Tasks
-            .Where(kv => kv.Value.Status == "acquired" && now >= kv.Value.LeaseExpiry)
+            .Where(kv => kv.Value.Status == "acquired" && now >= kv.Value.LeaseTimeoutAt)
             .Select(IStepFunction (kv) => AsyncOperation.Create<ServerState>(
                 isTerminal: s => !LeaseReclaimable(s, kv.Key),
                 transition: s =>

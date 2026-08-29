@@ -641,7 +641,7 @@ public static partial class ResonateSpec
                 if (!p.HasTarget) return false;
                 if (p.Project(now).IsTerminal) return false;          // own promise must be live
                 if (t.Status == "pending") return true;
-                if (t.Status == "acquired" && now >= t.LeaseExpiry) return true;  // R5
+                if (t.Status == "acquired" && now >= t.LeaseTimeoutAt) return true;  // R5
                 if (t.Status != "suspended") return false;
                 return state.Promises.Any(kv2 =>
                     kv2.Value.Callbacks.Contains(id) && kv2.Value.Project(now).IsTerminal);
